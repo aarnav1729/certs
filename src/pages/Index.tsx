@@ -1,12 +1,101 @@
-// Update this page (the content is just a fallback if you fail to update the page)
+
+import { useState, useEffect } from 'react';
+import { Button } from '@/components/ui/button';
+import { Plus } from 'lucide-react';
+import { CertificationTable } from '@/components/CertificationTable';
+import { CertificationForm } from '@/components/CertificationForm';
+import { Certification } from '@/lib/types';
+import { getCertifications, addCertification, updateCertification } from '@/lib/storage';
+import { toast } from 'sonner';
 
 const Index = () => {
+  const [certifications, setCertifications] = useState<Certification[]>([]);
+  const [isFormOpen, setIsFormOpen] = useState(false);
+  const [selectedCertification, setSelectedCertification] = useState<Certification | undefined>();
+  const [formMode, setFormMode] = useState<'create' | 'edit' | 'view'>('create');
+  
+  // Load certifications on mount
+  useEffect(() => {
+    loadCertifications();
+  }, []);
+  
+  const loadCertifications = () => {
+    const data = getCertifications();
+    // Sort by serial number in descending order (newest first)
+    data.sort((a, b) => b.serialNumber - a.serialNumber);
+    setCertifications(data);
+  };
+  
+  const handleCreateNew = () => {
+    setSelectedCertification(undefined);
+    setFormMode('create');
+    setIsFormOpen(true);
+  };
+  
+  const handleEdit = (certification: Certification) => {
+    setSelectedCertification(certification);
+    setFormMode('edit');
+    setIsFormOpen(true);
+  };
+  
+  const handleView = (certification: Certification) => {
+    setSelectedCertification(certification);
+    setFormMode('view');
+    setIsFormOpen(true);
+  };
+  
+  const handleDelete = (id: string) => {
+    setCertifications(certifications.filter(cert => cert.id !== id));
+  };
+  
+  const handleSubmit = (data: Omit<Certification, 'id' | 'serialNumber' | 'createdAt' | 'updatedAt' | 'status'>) => {
+    try {
+      if (formMode === 'create') {
+        // Create new certification
+        const newCertification = addCertification(data);
+        setCertifications([newCertification, ...certifications]);
+        toast.success('Certification created successfully');
+      } else if (formMode === 'edit' && selectedCertification) {
+        // Update existing certification
+        const updatedCertification = updateCertification(selectedCertification.id, data);
+        if (updatedCertification) {
+          setCertifications(certifications.map(cert => 
+            cert.id === updatedCertification.id ? updatedCertification : cert
+          ));
+          toast.success('Certification updated successfully');
+        }
+      }
+    } catch (error) {
+      console.error('Error handling form submission:', error);
+      toast.error('Failed to save certification');
+    }
+  };
+
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-100">
-      <div className="text-center">
-        <h1 className="text-4xl font-bold mb-4">Welcome to Your Blank App</h1>
-        <p className="text-xl text-gray-600">Start building your amazing project here!</p>
+    <div className="container py-8 max-w-[1200px]">
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-3xl font-bold text-gray-900">Certification Board</h1>
+        <Button onClick={handleCreateNew} className="bg-brand-500 hover:bg-brand-600">
+          <Plus className="h-4 w-4 mr-2" />
+          Create New
+        </Button>
       </div>
+      
+      <CertificationTable 
+        certifications={certifications}
+        onEdit={handleEdit}
+        onView={handleView}
+        onDelete={handleDelete}
+        onDataChange={loadCertifications}
+      />
+      
+      <CertificationForm 
+        isOpen={isFormOpen}
+        onClose={() => setIsFormOpen(false)}
+        onSubmit={handleSubmit}
+        initialData={selectedCertification}
+        mode={formMode}
+      />
     </div>
   );
 };
