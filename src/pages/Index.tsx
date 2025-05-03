@@ -79,7 +79,6 @@ const Index = () => {
         certifications={certifications}
         onEdit={handleEdit}
         onView={handleView}
-        onDelete={() => {}} // Delete functionality removed as per requirements
         onDataChange={loadCertifications}
       />
       
