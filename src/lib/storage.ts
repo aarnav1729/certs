@@ -1,7 +1,10 @@
 
-import { Certification, CertificationStatus, UploadFile } from "./types";
+import { Certification, CertificationStatus, UploadFile, ProductType, TestingLaboratory, MaterialCategory, PRODUCT_TYPES, TESTING_LABORATORIES, MATERIAL_CATEGORIES } from "./types";
 
 const STORAGE_KEY = 'cert-board-certifications';
+const CUSTOM_PRODUCT_TYPES_KEY = 'cert-board-custom-product-types';
+const CUSTOM_TESTING_LABORATORIES_KEY = 'cert-board-custom-testing-laboratories';
+const CUSTOM_MATERIAL_CATEGORIES_KEY = 'cert-board-custom-material-categories';
 
 // Get all certifications from local storage
 export const getCertifications = (): Certification[] => {
@@ -34,20 +37,134 @@ export const getNextSerialNumber = (): number => {
   return Math.max(...certifications.map(cert => cert.serialNumber)) + 1;
 };
 
+// Get custom product types
+export const getCustomProductTypes = (): ProductType[] => {
+  const storedData = localStorage.getItem(CUSTOM_PRODUCT_TYPES_KEY);
+  if (!storedData) return [];
+  
+  try {
+    return JSON.parse(storedData);
+  } catch (error) {
+    console.error('Error parsing custom product types data:', error);
+    return [];
+  }
+};
+
+// Save custom product type
+export const saveCustomProductType = (productType: ProductType): void => {
+  try {
+    const customTypes = getCustomProductTypes();
+    if (!customTypes.includes(productType)) {
+      customTypes.push(productType);
+      localStorage.setItem(CUSTOM_PRODUCT_TYPES_KEY, JSON.stringify(customTypes));
+    }
+  } catch (error) {
+    console.error('Error saving custom product type:', error);
+  }
+};
+
+// Get all product types (including custom ones)
+export const getAllProductTypes = (): ProductType[] => {
+  return [...PRODUCT_TYPES, ...getCustomProductTypes()];
+};
+
+// Get custom testing laboratories
+export const getCustomTestingLaboratories = (): TestingLaboratory[] => {
+  const storedData = localStorage.getItem(CUSTOM_TESTING_LABORATORIES_KEY);
+  if (!storedData) return [];
+  
+  try {
+    return JSON.parse(storedData);
+  } catch (error) {
+    console.error('Error parsing custom testing laboratories data:', error);
+    return [];
+  }
+};
+
+// Save custom testing laboratory
+export const saveCustomTestingLaboratory = (lab: TestingLaboratory): void => {
+  try {
+    const customLabs = getCustomTestingLaboratories();
+    if (!customLabs.includes(lab)) {
+      customLabs.push(lab);
+      localStorage.setItem(CUSTOM_TESTING_LABORATORIES_KEY, JSON.stringify(customLabs));
+    }
+  } catch (error) {
+    console.error('Error saving custom testing laboratory:', error);
+  }
+};
+
+// Get all testing laboratories (including custom ones)
+export const getAllTestingLaboratories = (): TestingLaboratory[] => {
+  return [...TESTING_LABORATORIES, ...getCustomTestingLaboratories()];
+};
+
+// Get custom material categories
+export const getCustomMaterialCategories = (): MaterialCategory[] => {
+  const storedData = localStorage.getItem(CUSTOM_MATERIAL_CATEGORIES_KEY);
+  if (!storedData) return [];
+  
+  try {
+    return JSON.parse(storedData);
+  } catch (error) {
+    console.error('Error parsing custom material categories data:', error);
+    return [];
+  }
+};
+
+// Save custom material category
+export const saveCustomMaterialCategory = (category: MaterialCategory): void => {
+  try {
+    const customCategories = getCustomMaterialCategories();
+    if (!customCategories.includes(category)) {
+      customCategories.push(category);
+      localStorage.setItem(CUSTOM_MATERIAL_CATEGORIES_KEY, JSON.stringify(customCategories));
+    }
+  } catch (error) {
+    console.error('Error saving custom material category:', error);
+  }
+};
+
+// Get all material categories (including custom ones)
+export const getAllMaterialCategories = (): MaterialCategory[] => {
+  return [...MATERIAL_CATEGORIES, ...getCustomMaterialCategories()];
+};
+
 // Add a new certification
-export const addCertification = (certification: Omit<Certification, 'id' | 'serialNumber' | 'createdAt' | 'updatedAt' | 'status'>): Certification => {
+export const addCertification = (certification: Omit<Certification, 'id' | 'serialNumber' | 'createdAt' | 'lastUpdatedOn'>): Certification => {
   const certifications = getCertifications();
+  const now = new Date().toISOString();
   
   const newCertification: Certification = {
     ...certification,
     id: crypto.randomUUID(),
     serialNumber: getNextSerialNumber(),
-    status: certification.uploads && certification.uploads.length > 0 ? 'Complete' : 'In-Progress',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
+    createdAt: now,
+    lastUpdatedOn: now
   };
   
+  // Check if custom product type needs to be saved
+  if (!PRODUCT_TYPES.includes(newCertification.productType)) {
+    saveCustomProductType(newCertification.productType);
+  }
+  
+  // Check if custom testing laboratory needs to be saved
+  if (!TESTING_LABORATORIES.includes(newCertification.testingLaboratory)) {
+    saveCustomTestingLaboratory(newCertification.testingLaboratory);
+  }
+  
+  // Check if custom material categories need to be saved
+  newCertification.materialCategories.forEach(category => {
+    if (!MATERIAL_CATEGORIES.includes(category)) {
+      saveCustomMaterialCategory(category);
+    }
+  });
+  
   certifications.push(newCertification);
+  
+  // Sort certifications - overdue (red) first, then in progress, then completed last
+  sortCertifications(certifications);
+  
   saveCertifications(certifications);
   
   return newCertification;
@@ -60,36 +177,40 @@ export const updateCertification = (id: string, data: Partial<Certification>): C
   
   if (index === -1) return null;
   
-  // Determine status based on uploads
-  let status: CertificationStatus = certifications[index].status;
-  if (data.uploads) {
-    status = data.uploads.length > 0 ? 'Complete' : 'In-Progress';
-  }
-  
+  // Update the certification with new data
   const updatedCertification: Certification = {
     ...certifications[index],
     ...data,
-    status,
-    updatedAt: new Date().toISOString()
+    lastUpdatedOn: new Date().toISOString()
   };
   
+  // Check if custom product type needs to be saved
+  if (data.productType && !PRODUCT_TYPES.includes(data.productType)) {
+    saveCustomProductType(data.productType);
+  }
+  
+  // Check if custom testing laboratory needs to be saved
+  if (data.testingLaboratory && !TESTING_LABORATORIES.includes(data.testingLaboratory)) {
+    saveCustomTestingLaboratory(data.testingLaboratory);
+  }
+  
+  // Check if custom material categories need to be saved
+  if (data.materialCategories) {
+    data.materialCategories.forEach(category => {
+      if (!MATERIAL_CATEGORIES.includes(category)) {
+        saveCustomMaterialCategory(category);
+      }
+    });
+  }
+  
   certifications[index] = updatedCertification;
+  
+  // Sort certifications - overdue (red) first, then in progress, then completed last
+  sortCertifications(certifications);
+  
   saveCertifications(certifications);
   
   return updatedCertification;
-};
-
-// Delete a certification
-export const deleteCertification = (id: string): boolean => {
-  const certifications = getCertifications();
-  const updatedCertifications = certifications.filter(cert => cert.id !== id);
-  
-  if (updatedCertifications.length === certifications.length) {
-    return false;
-  }
-  
-  saveCertifications(updatedCertifications);
-  return true;
 };
 
 // Convert file to base64 for storage
@@ -99,5 +220,35 @@ export const fileToBase64 = (file: File): Promise<string> => {
     reader.readAsDataURL(file);
     reader.onload = () => resolve(reader.result as string);
     reader.onerror = error => reject(error);
+  });
+};
+
+// Sort certifications
+export const sortCertifications = (certifications: Certification[]): void => {
+  const now = new Date();
+  
+  certifications.sort((a, b) => {
+    // Helper function to check if a certification is overdue
+    const isOverdue = (cert: Certification) => {
+      return new Date(cert.dueDate) < now && cert.status !== 'Completed';
+    };
+    
+    const aOverdue = isOverdue(a);
+    const bOverdue = isOverdue(b);
+    
+    // First priority: Overdue certifications
+    if (aOverdue && !bOverdue) return -1;
+    if (!aOverdue && bOverdue) return 1;
+    
+    // Second priority: Status (Not Started Yet > In Progress > Completed)
+    if (a.status !== b.status) {
+      if (a.status === 'Completed') return 1;
+      if (b.status === 'Completed') return -1;
+      if (a.status === 'In Progress' && b.status === 'Not Started Yet') return -1;
+      if (a.status === 'Not Started Yet' && b.status === 'In Progress') return 1;
+    }
+    
+    // Third priority: Due date (earlier due dates first)
+    return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
   });
 };

@@ -5,7 +5,7 @@ import { Plus } from 'lucide-react';
 import { CertificationTable } from '@/components/CertificationTable';
 import { CertificationForm } from '@/components/CertificationForm';
 import { Certification } from '@/lib/types';
-import { getCertifications, addCertification, updateCertification } from '@/lib/storage';
+import { getCertifications, addCertification, updateCertification, sortCertifications } from '@/lib/storage';
 import { toast } from 'sonner';
 
 const Index = () => {
@@ -21,8 +21,8 @@ const Index = () => {
   
   const loadCertifications = () => {
     const data = getCertifications();
-    // Sort by serial number in descending order (newest first)
-    data.sort((a, b) => b.serialNumber - a.serialNumber);
+    // Sort certifications - overdue first, then in progress, then completed last
+    sortCertifications(data);
     setCertifications(data);
   };
   
@@ -44,24 +44,18 @@ const Index = () => {
     setIsFormOpen(true);
   };
   
-  const handleDelete = (id: string) => {
-    setCertifications(certifications.filter(cert => cert.id !== id));
-  };
-  
-  const handleSubmit = (data: Omit<Certification, 'id' | 'serialNumber' | 'createdAt' | 'updatedAt' | 'status'>) => {
+  const handleSubmit = (data: Omit<Certification, 'id' | 'serialNumber' | 'createdAt' | 'lastUpdatedOn'>) => {
     try {
       if (formMode === 'create') {
         // Create new certification
         const newCertification = addCertification(data);
-        setCertifications([newCertification, ...certifications]);
+        loadCertifications(); // Reload to ensure sorting is applied
         toast.success('Certification created successfully');
       } else if (formMode === 'edit' && selectedCertification) {
         // Update existing certification
         const updatedCertification = updateCertification(selectedCertification.id, data);
         if (updatedCertification) {
-          setCertifications(certifications.map(cert => 
-            cert.id === updatedCertification.id ? updatedCertification : cert
-          ));
+          loadCertifications(); // Reload to ensure sorting is applied
           toast.success('Certification updated successfully');
         }
       }
@@ -72,7 +66,7 @@ const Index = () => {
   };
 
   return (
-    <div className="container py-8 max-w-[1200px]">
+    <div className="container py-8 max-w-[1400px]">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-3xl font-bold text-gray-900">Certification Board</h1>
         <Button onClick={handleCreateNew} className="bg-brand-500 hover:bg-brand-600">
@@ -85,7 +79,7 @@ const Index = () => {
         certifications={certifications}
         onEdit={handleEdit}
         onView={handleView}
-        onDelete={handleDelete}
+        onDelete={() => {}} // Delete functionality removed as per requirements
         onDataChange={loadCertifications}
       />
       
