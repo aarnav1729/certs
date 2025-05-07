@@ -5,9 +5,7 @@ export const PRODUCT_TYPES: string[] = [
   'Dual Glass M10 TOPCON',
   'Dual Glass G12R TOPCON',
   'Dual Glass G12 TOPCON',
-  'Dual Glass M10 TOPCON',
-  'M10 Transparent PERC',
-  'Dual Glass G12R TOPCON'
+  'M10 Transparent PERC'
 ];
 
 export type MaterialCategory = 
