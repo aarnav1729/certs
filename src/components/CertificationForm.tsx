@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from "react";
 import { 
   Dialog,
@@ -22,7 +21,8 @@ import {
   UploadFile,
   MaterialCategory,
   ProductType,
-  TestingLaboratory
+  TestingLaboratory,
+  PRODUCT_TYPES
 } from "@/lib/types";
 import { 
   fileToBase64, 
@@ -53,7 +53,7 @@ export function CertificationForm({
 }: CertificationFormProps) {
   const [projectName, setProjectName] = useState(initialData?.projectName || '');
   const [projectDetails, setProjectDetails] = useState(initialData?.projectDetails || '');
-  const [productType, setProductType] = useState<ProductType>(initialData?.productType || 'DUAL GLASS G12R');
+  const [productType, setProductType] = useState<ProductType>(initialData?.productType || []);
   const [customProductType, setCustomProductType] = useState('');
   const [materialCategories, setMaterialCategories] = useState<MaterialCategory[]>(initialData?.materialCategories || []);
   const [customMaterialCategory, setCustomMaterialCategory] = useState('');
@@ -69,7 +69,7 @@ export function CertificationForm({
   const [supplierName, setSupplierName] = useState(initialData?.paymentInfo?.supplierName || '');
   const [invoiceAttachment, setInvoiceAttachment] = useState<UploadFile | undefined>(initialData?.paymentInfo?.invoiceAttachment);
   
-  const [allProductTypes, setAllProductTypes] = useState<ProductType[]>([]);
+  const [allProductTypes, setAllProductTypes] = useState<string[]>([]);
   const [allTestingLaboratories, setAllTestingLaboratories] = useState<TestingLaboratory[]>([]);
   const [allMaterialCategories, setAllMaterialCategories] = useState<MaterialCategory[]>([]);
   const [showCustomProductType, setShowCustomProductType] = useState(false);
@@ -92,7 +92,7 @@ export function CertificationForm({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!projectName || !productType || !testingLaboratory || !material || !dueDate || materialCategories.length === 0) {
+    if (!projectName || !testingLaboratory || !material || !dueDate || materialCategories.length === 0 || productType.length === 0) {
       toast.error("Please fill in all required fields");
       return;
     }
@@ -101,11 +101,15 @@ export function CertificationForm({
     
     try {
       // Handle custom product type
-      let finalProductType = productType;
+      let finalProductType = [...productType];
       if (showCustomProductType && customProductType) {
-        finalProductType = customProductType;
+        if (!finalProductType.includes(customProductType)) {
+          finalProductType.push(customProductType);
+        }
         saveCustomProductType(customProductType);
-        setAllProductTypes(prev => [...prev, customProductType]);
+        setAllProductTypes(prev => prev.includes(customProductType) ? prev : [...prev, customProductType]);
+        setCustomProductType('');
+        setShowCustomProductType(false);
       }
       
       // Handle custom testing laboratory
@@ -142,7 +146,7 @@ export function CertificationForm({
       if (isCreateMode) {
         setProjectName('');
         setProjectDetails('');
-        setProductType('DUAL GLASS G12R');
+        setProductType([]);
         setCustomProductType('');
         setShowCustomProductType(false);
         setMaterialCategories([]);
@@ -234,6 +238,24 @@ export function CertificationForm({
     }
   };
 
+  const handleProductTypeChange = (productTypeOption: string, checked: boolean) => {
+    if (checked) {
+      setProductType([...productType, productTypeOption]);
+    } else {
+      setProductType(productType.filter(pt => pt !== productTypeOption));
+    }
+  };
+
+  const handleAddCustomProductType = () => {
+    if (customProductType && !productType.includes(customProductType)) {
+      setProductType([...productType, customProductType]);
+      saveCustomProductType(customProductType);
+      setAllProductTypes(prev => [...prev, customProductType]);
+      setCustomProductType('');
+      setShowCustomProductType(false);
+    }
+  };
+
   const handleAddCustomMaterialCategory = () => {
     if (customMaterialCategory && !materialCategories.includes(customMaterialCategory)) {
       setMaterialCategories([...materialCategories, customMaterialCategory]);
@@ -291,63 +313,77 @@ export function CertificationForm({
               </div>
             </div>
             
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="productType">Product Type *</Label>
-                {!showCustomProductType ? (
-                  <div className="flex items-center gap-2">
-                    <Select 
-                      value={productType} 
-                      onValueChange={(value: string) => {
-                        if (value === "other") {
-                          setShowCustomProductType(true);
-                        } else {
-                          setProductType(value as ProductType);
-                        }
-                      }}
+            <div className="space-y-2">
+              <Label htmlFor="productType">Product Type *</Label>
+              <div className="grid grid-cols-3 gap-2 border p-3 rounded-md">
+                {allProductTypes.map((type) => (
+                  <div className="flex items-center space-x-2" key={type}>
+                    <Checkbox 
+                      id={`product-type-${type}`} 
+                      checked={productType.includes(type)}
+                      onCheckedChange={(checked) => 
+                        handleProductTypeChange(type, checked as boolean)
+                      }
                       disabled={isViewMode}
+                    />
+                    <label
+                      htmlFor={`product-type-${type}`}
+                      className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
                     >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select product type" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {allProductTypes.map(type => (
-                          <SelectItem key={type} value={type}>{type}</SelectItem>
-                        ))}
-                        <SelectItem value="other">Others (Specify)</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    {!isViewMode && (
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        onClick={() => setShowCustomProductType(true)}
-                      >
-                        <PlusCircle className="h-4 w-4" />
-                      </Button>
-                    )}
+                      {type}
+                    </label>
                   </div>
-                ) : (
-                  <div className="flex items-center gap-2">
+                ))}
+                
+                {!isViewMode && !showCustomProductType && (
+                  <div className="flex items-center space-x-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="text-xs"
+                      onClick={() => setShowCustomProductType(true)}
+                    >
+                      <PlusCircle className="h-3 w-3 mr-1" /> Add Other
+                    </Button>
+                  </div>
+                )}
+                
+                {showCustomProductType && (
+                  <div className="col-span-3 flex items-center gap-2 mt-2">
                     <Input
                       placeholder="Enter custom product type"
                       value={customProductType}
                       onChange={(e) => setCustomProductType(e.target.value)}
-                      disabled={isViewMode}
+                      className="flex-1"
                     />
                     <Button
                       type="button"
                       size="sm"
+                      onClick={handleAddCustomProductType}
+                    >
+                      Add
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
                       variant="outline"
-                      onClick={() => setShowCustomProductType(false)}
+                      onClick={() => {
+                        setCustomProductType('');
+                        setShowCustomProductType(false);
+                      }}
                     >
                       <X className="h-4 w-4" />
                     </Button>
                   </div>
                 )}
               </div>
-              
+              {productType.length === 0 && !isViewMode && (
+                <p className="text-xs text-red-500">Please select at least one product type</p>
+              )}
+            </div>
+            
+            <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="material">Material (with model number) *</Label>
                 <Input 
@@ -358,6 +394,62 @@ export function CertificationForm({
                   required
                   maxLength={100}
                 />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="testingLaboratory">Testing Laboratory *</Label>
+                {!showCustomTestingLaboratory ? (
+                  <div className="flex items-center gap-2">
+                    <Select 
+                      value={testingLaboratory} 
+                      onValueChange={(value: string) => {
+                        if (value === "other") {
+                          setShowCustomTestingLaboratory(true);
+                        } else {
+                          setTestingLaboratory(value as TestingLaboratory);
+                        }
+                      }}
+                      disabled={isViewMode}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select testing laboratory" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {allTestingLaboratories.map(lab => (
+                          <SelectItem key={lab} value={lab}>{lab}</SelectItem>
+                        ))}
+                        <SelectItem value="other">Others (Specify)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    {!isViewMode && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setShowCustomTestingLaboratory(true)}
+                      >
+                        <PlusCircle className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <Input
+                      placeholder="Enter custom testing laboratory"
+                      value={customTestingLaboratory}
+                      onChange={(e) => setCustomTestingLaboratory(e.target.value)}
+                      disabled={isViewMode}
+                    />
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setShowCustomTestingLaboratory(false)}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                )}
               </div>
             </div>
             
@@ -443,62 +535,6 @@ export function CertificationForm({
             </div>
             
             <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="testingLaboratory">Testing Laboratory *</Label>
-                {!showCustomTestingLaboratory ? (
-                  <div className="flex items-center gap-2">
-                    <Select 
-                      value={testingLaboratory} 
-                      onValueChange={(value: string) => {
-                        if (value === "other") {
-                          setShowCustomTestingLaboratory(true);
-                        } else {
-                          setTestingLaboratory(value as TestingLaboratory);
-                        }
-                      }}
-                      disabled={isViewMode}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select testing laboratory" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {allTestingLaboratories.map(lab => (
-                          <SelectItem key={lab} value={lab}>{lab}</SelectItem>
-                        ))}
-                        <SelectItem value="other">Others (Specify)</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    {!isViewMode && (
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        onClick={() => setShowCustomTestingLaboratory(true)}
-                      >
-                        <PlusCircle className="h-4 w-4" />
-                      </Button>
-                    )}
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2">
-                    <Input
-                      placeholder="Enter custom testing laboratory"
-                      value={customTestingLaboratory}
-                      onChange={(e) => setCustomTestingLaboratory(e.target.value)}
-                      disabled={isViewMode}
-                    />
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setShowCustomTestingLaboratory(false)}
-                    >
-                      <X className="h-4 w-4" />
-                    </Button>
-                  </div>
-                )}
-              </div>
-              
               <div className="space-y-2">
                 <Label htmlFor="dueDate">Due Date *</Label>
                 <Input 

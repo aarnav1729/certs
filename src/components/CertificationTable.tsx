@@ -95,7 +95,29 @@ export function CertificationTable({
                   <TableCell>
                     {certification.material}
                   </TableCell>
-                  <TableCell>{certification.productType}</TableCell>
+                  <TableCell>
+                    <div className="flex flex-wrap gap-1">
+                      {Array.isArray(certification.productType) ? (
+                        certification.productType.map((type, idx) => (
+                          <Badge 
+                            key={idx} 
+                            variant="outline" 
+                            className="text-xs bg-gray-100"
+                          >
+                            {type}
+                          </Badge>
+                        ))
+                      ) : (
+                        // Handle legacy format (for backward compatibility)
+                        <Badge 
+                          variant="outline" 
+                          className="text-xs bg-gray-100"
+                        >
+                          {certification.productType}
+                        </Badge>
+                      )}
+                    </div>
+                  </TableCell>
                   <TableCell>
                     <div className="flex flex-wrap gap-1">
                       {certification.materialCategories.map((category, idx) => (

@@ -1,4 +1,3 @@
-
 import { Certification, CertificationStatus, UploadFile, ProductType, TestingLaboratory, MaterialCategory, PRODUCT_TYPES, TESTING_LABORATORIES, MATERIAL_CATEGORIES } from "./types";
 
 const STORAGE_KEY = 'cert-board-certifications';
@@ -12,7 +11,18 @@ export const getCertifications = (): Certification[] => {
   if (!storedData) return [];
   
   try {
-    return JSON.parse(storedData);
+    const data = JSON.parse(storedData);
+    // Handle migration of data format
+    return data.map((cert: any) => {
+      // Convert string product type to array if needed
+      if (typeof cert.productType === 'string') {
+        return {
+          ...cert,
+          productType: [cert.productType]
+        };
+      }
+      return cert;
+    });
   } catch (error) {
     console.error('Error parsing certifications data:', error);
     return [];
@@ -38,7 +48,7 @@ export const getNextSerialNumber = (): number => {
 };
 
 // Get custom product types
-export const getCustomProductTypes = (): ProductType[] => {
+export const getCustomProductTypes = (): string[] => {
   const storedData = localStorage.getItem(CUSTOM_PRODUCT_TYPES_KEY);
   if (!storedData) return [];
   
@@ -51,7 +61,7 @@ export const getCustomProductTypes = (): ProductType[] => {
 };
 
 // Save custom product type
-export const saveCustomProductType = (productType: ProductType): void => {
+export const saveCustomProductType = (productType: string): void => {
   try {
     const customTypes = getCustomProductTypes();
     if (!customTypes.includes(productType)) {
@@ -64,7 +74,7 @@ export const saveCustomProductType = (productType: ProductType): void => {
 };
 
 // Get all product types (including custom ones)
-export const getAllProductTypes = (): ProductType[] => {
+export const getAllProductTypes = (): string[] => {
   return [...PRODUCT_TYPES, ...getCustomProductTypes()];
 };
 
@@ -143,9 +153,16 @@ export const addCertification = (certification: Omit<Certification, 'id' | 'seri
     lastUpdatedOn: now
   };
   
-  // Check if custom product type needs to be saved
-  if (!PRODUCT_TYPES.includes(newCertification.productType)) {
-    saveCustomProductType(newCertification.productType);
+  // Check if custom product types need to be saved
+  if (Array.isArray(newCertification.productType)) {
+    newCertification.productType.forEach(type => {
+      if (!PRODUCT_TYPES.includes(type)) {
+        saveCustomProductType(type);
+      }
+    });
+  } else if (!PRODUCT_TYPES.includes(newCertification.productType as string)) {
+    // Handle case where productType might still be a string (backward compatibility)
+    saveCustomProductType(newCertification.productType as string);
   }
   
   // Check if custom testing laboratory needs to be saved
@@ -184,9 +201,18 @@ export const updateCertification = (id: string, data: Partial<Certification>): C
     lastUpdatedOn: new Date().toISOString()
   };
   
-  // Check if custom product type needs to be saved
-  if (data.productType && !PRODUCT_TYPES.includes(data.productType)) {
-    saveCustomProductType(data.productType);
+  // Check if custom product types need to be saved
+  if (data.productType) {
+    if (Array.isArray(data.productType)) {
+      data.productType.forEach(type => {
+        if (!PRODUCT_TYPES.includes(type)) {
+          saveCustomProductType(type);
+        }
+      });
+    } else if (!PRODUCT_TYPES.includes(data.productType as string)) {
+      // Handle case where productType might still be a string (backward compatibility)
+      saveCustomProductType(data.productType as string);
+    }
   }
   
   // Check if custom testing laboratory needs to be saved
