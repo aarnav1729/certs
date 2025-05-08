@@ -1,3 +1,4 @@
+
 export type ProductType = string[];
 
 export const PRODUCT_TYPES: string[] = [
@@ -5,7 +6,8 @@ export const PRODUCT_TYPES: string[] = [
   'Dual Glass M10 TOPCON',
   'Dual Glass G12R TOPCON',
   'Dual Glass G12 TOPCON',
-  'M10 Transparent PERC'
+  'M10 Transparent PERC',
+  'Raw Material'
 ];
 
 export type MaterialCategory = 
@@ -17,6 +19,7 @@ export type MaterialCategory =
   | 'Flux'
   | 'Sealant'
   | 'Connector'
+  | 'FG Module'
   | string;
 
 export const MATERIAL_CATEGORIES: MaterialCategory[] = [
@@ -27,7 +30,8 @@ export const MATERIAL_CATEGORIES: MaterialCategory[] = [
   'Backsheet',
   'Flux',
   'Sealant',
-  'Connector'
+  'Connector',
+  'FG Module'
 ];
 
 export type TestingLaboratory = 
@@ -64,6 +68,12 @@ export interface PaymentInfo {
   invoiceAttachment?: UploadFile;
 }
 
+export interface DueDateChange {
+  previousDate: string;
+  newDate: string;
+  changedAt: string;
+}
+
 export interface Certification {
   id: string;
   serialNumber: number;
@@ -73,11 +83,14 @@ export interface Certification {
   materialCategories: MaterialCategory[];
   material: string;
   testingLaboratory: TestingLaboratory;
+  testingApprovedBy?: string;
   status: CertificationStatus;
   dueDate: string;
+  dueDateHistory?: DueDateChange[];
   lastUpdatedOn: string;
   remarks: string;
   uploads: UploadFile[];
   paymentInfo: PaymentInfo;
+  sampleQuantity?: number;
   createdAt: string;
 }

@@ -1,3 +1,4 @@
+
 import { useState, useEffect } from "react";
 import { 
   Dialog,
@@ -22,7 +23,8 @@ import {
   MaterialCategory,
   ProductType,
   TestingLaboratory,
-  PRODUCT_TYPES
+  PRODUCT_TYPES,
+  DueDateChange
 } from "@/lib/types";
 import { 
   fileToBase64, 
@@ -34,7 +36,7 @@ import {
   saveCustomMaterialCategory
 } from "@/lib/storage";
 import { format } from "date-fns";
-import { X, Upload, PlusCircle } from "lucide-react";
+import { X, Upload, PlusCircle, Mail, Calendar, History, Box, Check } from "lucide-react";
 
 interface CertificationFormProps {
   isOpen: boolean;
@@ -51,23 +53,26 @@ export function CertificationForm({
   initialData,
   mode 
 }: CertificationFormProps) {
-  const [projectName, setProjectName] = useState(initialData?.projectName || '');
-  const [projectDetails, setProjectDetails] = useState(initialData?.projectDetails || '');
-  const [productType, setProductType] = useState<ProductType>(initialData?.productType || []);
+  const [projectName, setProjectName] = useState('');
+  const [projectDetails, setProjectDetails] = useState('');
+  const [productType, setProductType] = useState<ProductType>([]);
   const [customProductType, setCustomProductType] = useState('');
-  const [materialCategories, setMaterialCategories] = useState<MaterialCategory[]>(initialData?.materialCategories || []);
+  const [materialCategories, setMaterialCategories] = useState<MaterialCategory[]>([]);
   const [customMaterialCategory, setCustomMaterialCategory] = useState('');
-  const [material, setMaterial] = useState(initialData?.material || '');
-  const [testingLaboratory, setTestingLaboratory] = useState<TestingLaboratory>(initialData?.testingLaboratory || 'TUV Rheinland');
+  const [material, setMaterial] = useState('');
+  const [testingLaboratory, setTestingLaboratory] = useState<TestingLaboratory>('TUV Rheinland');
+  const [testingApprovedBy, setTestingApprovedBy] = useState('');
   const [customTestingLaboratory, setCustomTestingLaboratory] = useState('');
-  const [status, setStatus] = useState<CertificationStatus>(initialData?.status || 'Not Started Yet');
-  const [dueDate, setDueDate] = useState(initialData?.dueDate ? initialData.dueDate.split('T')[0] : '');
-  const [remarks, setRemarks] = useState(initialData?.remarks || '');
-  const [uploads, setUploads] = useState<UploadFile[]>(initialData?.uploads || []);
-  const [paidForBy, setPaidForBy] = useState<PaidForBy>(initialData?.paymentInfo?.paidForBy || 'Premier');
-  const [amount, setAmount] = useState<number | undefined>(initialData?.paymentInfo?.amount);
-  const [supplierName, setSupplierName] = useState(initialData?.paymentInfo?.supplierName || '');
-  const [invoiceAttachment, setInvoiceAttachment] = useState<UploadFile | undefined>(initialData?.paymentInfo?.invoiceAttachment);
+  const [status, setStatus] = useState<CertificationStatus>('Not Started Yet');
+  const [dueDate, setDueDate] = useState('');
+  const [dueDateHistory, setDueDateHistory] = useState<DueDateChange[]>([]);
+  const [remarks, setRemarks] = useState('');
+  const [uploads, setUploads] = useState<UploadFile[]>([]);
+  const [paidForBy, setPaidForBy] = useState<PaidForBy>('Premier');
+  const [amount, setAmount] = useState<number | undefined>();
+  const [supplierName, setSupplierName] = useState('');
+  const [invoiceAttachment, setInvoiceAttachment] = useState<UploadFile | undefined>();
+  const [sampleQuantity, setSampleQuantity] = useState<number | undefined>();
   
   const [allProductTypes, setAllProductTypes] = useState<string[]>([]);
   const [allTestingLaboratories, setAllTestingLaboratories] = useState<TestingLaboratory[]>([]);
@@ -77,17 +82,68 @@ export function CertificationForm({
   const [showCustomMaterialCategory, setShowCustomMaterialCategory] = useState(false);
   
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showDueDateHistory, setShowDueDateHistory] = useState(false);
 
   const isViewMode = mode === 'view';
   const isEditMode = mode === 'edit';
   const isCreateMode = mode === 'create';
   
-  // Load all custom options when the component mounts
+  // Load all custom options and initialize form with initialData when the component mounts or mode changes
   useEffect(() => {
     setAllProductTypes(getAllProductTypes());
     setAllTestingLaboratories(getAllTestingLaboratories());
     setAllMaterialCategories(getAllMaterialCategories());
-  }, [isOpen]);
+    
+    // Initialize form with initialData
+    if (initialData) {
+      setProjectName(initialData.projectName || '');
+      setProjectDetails(initialData.projectDetails || '');
+      setProductType(Array.isArray(initialData.productType) ? initialData.productType : []);
+      setMaterialCategories(initialData.materialCategories || []);
+      setMaterial(initialData.material || '');
+      setTestingLaboratory(initialData.testingLaboratory || 'TUV Rheinland');
+      setTestingApprovedBy(initialData.testingApprovedBy || '');
+      setStatus(initialData.status || 'Not Started Yet');
+      setDueDate(initialData.dueDate ? initialData.dueDate.split('T')[0] : '');
+      setDueDateHistory(initialData.dueDateHistory || []);
+      setRemarks(initialData.remarks || '');
+      setUploads(initialData.uploads || []);
+      setPaidForBy(initialData.paymentInfo?.paidForBy || 'Premier');
+      setAmount(initialData.paymentInfo?.amount);
+      setSupplierName(initialData.paymentInfo?.supplierName || '');
+      setInvoiceAttachment(initialData.paymentInfo?.invoiceAttachment);
+      setSampleQuantity(initialData.sampleQuantity || undefined);
+    } else {
+      // Reset form if no initialData
+      resetForm();
+    }
+  }, [initialData, isOpen, mode]);
+  
+  const resetForm = () => {
+    setProjectName('');
+    setProjectDetails('');
+    setProductType([]);
+    setCustomProductType('');
+    setShowCustomProductType(false);
+    setMaterialCategories([]);
+    setCustomMaterialCategory('');
+    setShowCustomMaterialCategory(false);
+    setMaterial('');
+    setTestingLaboratory('TUV Rheinland');
+    setTestingApprovedBy('');
+    setCustomTestingLaboratory('');
+    setShowCustomTestingLaboratory(false);
+    setStatus('Not Started Yet');
+    setDueDate('');
+    setDueDateHistory([]);
+    setRemarks('');
+    setUploads([]);
+    setPaidForBy('Premier');
+    setAmount(undefined);
+    setSupplierName('');
+    setInvoiceAttachment(undefined);
+    setSampleQuantity(undefined);
+  };
   
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -120,6 +176,16 @@ export function CertificationForm({
         setAllTestingLaboratories(prev => [...prev, customTestingLaboratory]);
       }
       
+      // Handle due date change history for edit mode
+      let updatedDueDateHistory = [...dueDateHistory];
+      if (isEditMode && initialData && dueDate !== initialData.dueDate.split('T')[0]) {
+        updatedDueDateHistory.push({
+          previousDate: initialData.dueDate,
+          newDate: new Date(dueDate).toISOString(),
+          changedAt: new Date().toISOString()
+        });
+      }
+      
       // Create payment info object
       const paymentInfo = {
         paidForBy,
@@ -135,35 +201,19 @@ export function CertificationForm({
         materialCategories,
         material,
         testingLaboratory: finalTestingLaboratory,
+        testingApprovedBy,
         status,
         dueDate: new Date(dueDate).toISOString(),
+        dueDateHistory: updatedDueDateHistory,
         remarks,
         uploads,
-        paymentInfo
+        paymentInfo,
+        sampleQuantity
       });
       
       // Reset form if creating
       if (isCreateMode) {
-        setProjectName('');
-        setProjectDetails('');
-        setProductType([]);
-        setCustomProductType('');
-        setShowCustomProductType(false);
-        setMaterialCategories([]);
-        setCustomMaterialCategory('');
-        setShowCustomMaterialCategory(false);
-        setMaterial('');
-        setTestingLaboratory('TUV Rheinland');
-        setCustomTestingLaboratory('');
-        setShowCustomTestingLaboratory(false);
-        setStatus('Not Started Yet');
-        setDueDate('');
-        setRemarks('');
-        setUploads([]);
-        setPaidForBy('Premier');
-        setAmount(undefined);
-        setSupplierName('');
-        setInvoiceAttachment(undefined);
+        resetForm();
       }
       
       onClose();
@@ -266,6 +316,22 @@ export function CertificationForm({
     }
   };
 
+  const selectAllProductTypes = () => {
+    setProductType([...allProductTypes]);
+  };
+
+  const deselectAllProductTypes = () => {
+    setProductType([]);
+  };
+
+  const selectAllMaterialCategories = () => {
+    setMaterialCategories([...allMaterialCategories]);
+  };
+
+  const deselectAllMaterialCategories = () => {
+    setMaterialCategories([]);
+  };
+
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
@@ -314,7 +380,29 @@ export function CertificationForm({
             </div>
             
             <div className="space-y-2">
-              <Label htmlFor="productType">Product Type *</Label>
+              <div className="flex justify-between items-center">
+                <Label htmlFor="productType">Product Type *</Label>
+                {!isViewMode && (
+                  <div className="flex space-x-2">
+                    <Button 
+                      type="button" 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={selectAllProductTypes}
+                    >
+                      <Check className="h-3 w-3 mr-1" /> Select All
+                    </Button>
+                    <Button 
+                      type="button" 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={deselectAllProductTypes}
+                    >
+                      <X className="h-3 w-3 mr-1" /> Deselect All
+                    </Button>
+                  </div>
+                )}
+              </div>
               <div className="grid grid-cols-3 gap-2 border p-3 rounded-md">
                 {allProductTypes.map((type) => (
                   <div className="flex items-center space-x-2" key={type}>
@@ -397,6 +485,25 @@ export function CertificationForm({
               </div>
               
               <div className="space-y-2">
+                <Label htmlFor="sampleQuantity">Sample Quantity</Label>
+                <div className="flex items-center gap-2">
+                  <Box className="h-4 w-4 text-gray-500" />
+                  <Input 
+                    id="sampleQuantity" 
+                    type="number" 
+                    min="0"
+                    step="1"
+                    value={sampleQuantity || ''} 
+                    onChange={(e) => setSampleQuantity(e.target.value ? parseInt(e.target.value) : undefined)}
+                    disabled={isViewMode}
+                    placeholder="Enter quantity"
+                  />
+                </div>
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
                 <Label htmlFor="testingLaboratory">Testing Laboratory *</Label>
                 {!showCustomTestingLaboratory ? (
                   <div className="flex items-center gap-2">
@@ -451,10 +558,47 @@ export function CertificationForm({
                   </div>
                 )}
               </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="testingApprovedBy">Testing Approved By (Email)</Label>
+                <div className="flex items-center gap-2">
+                  <Mail className="h-4 w-4 text-gray-500" />
+                  <Input 
+                    id="testingApprovedBy" 
+                    type="email" 
+                    value={testingApprovedBy} 
+                    onChange={(e) => setTestingApprovedBy(e.target.value)}
+                    disabled={isViewMode}
+                    placeholder="email@example.com"
+                  />
+                </div>
+              </div>
             </div>
             
             <div className="space-y-2">
-              <Label htmlFor="materialCategories">Material Categories *</Label>
+              <div className="flex justify-between items-center">
+                <Label htmlFor="materialCategories">Material Categories *</Label>
+                {!isViewMode && (
+                  <div className="flex space-x-2">
+                    <Button 
+                      type="button" 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={selectAllMaterialCategories}
+                    >
+                      <Check className="h-3 w-3 mr-1" /> Select All
+                    </Button>
+                    <Button 
+                      type="button" 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={deselectAllMaterialCategories}
+                    >
+                      <X className="h-3 w-3 mr-1" /> Deselect All
+                    </Button>
+                  </div>
+                )}
+              </div>
               <div className="grid grid-cols-3 gap-2 border p-3 rounded-md">
                 {allMaterialCategories.map((category) => (
                   <div className="flex items-center space-x-2" key={category}>
@@ -536,17 +680,45 @@ export function CertificationForm({
             
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="dueDate">Due Date *</Label>
+                <div className="flex items-center gap-2">
+                  <Label htmlFor="dueDate">Estimated Due Date *</Label>
+                  <Calendar className="h-4 w-4 text-gray-500" />
+                </div>
                 <Input 
                   id="dueDate" 
                   type="date" 
                   value={dueDate} 
                   onChange={(e) => setDueDate(e.target.value)}
-                  disabled={isEditMode || isViewMode}
+                  disabled={isViewMode}
                   required
                 />
-                {(isEditMode || isViewMode) && (
-                  <p className="text-xs text-muted-foreground">Due date cannot be changed after creation.</p>
+                {dueDateHistory && dueDateHistory.length > 0 && (
+                  <Button 
+                    type="button" 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={() => setShowDueDateHistory(!showDueDateHistory)}
+                    className="mt-2 w-full flex items-center justify-center"
+                  >
+                    <History className="h-4 w-4 mr-2" />
+                    {showDueDateHistory ? "Hide History" : "Show History"}
+                  </Button>
+                )}
+                {showDueDateHistory && dueDateHistory && dueDateHistory.length > 0 && (
+                  <div className="border rounded-md p-2 mt-2 bg-gray-50 max-h-[150px] overflow-y-auto">
+                    <p className="text-sm font-medium mb-1">Due Date Change History:</p>
+                    {dueDateHistory.map((change, index) => (
+                      <div key={index} className="text-xs border-b last:border-b-0 py-1">
+                        <p>
+                          Changed from {format(new Date(change.previousDate), 'dd MMM yyyy')} to{' '}
+                          {format(new Date(change.newDate), 'dd MMM yyyy')}
+                        </p>
+                        <p className="text-gray-500">
+                          {format(new Date(change.changedAt), 'dd MMM yyyy HH:mm')}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
                 )}
               </div>
             </div>

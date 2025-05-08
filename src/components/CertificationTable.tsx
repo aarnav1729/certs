@@ -1,3 +1,4 @@
+
 import { useState } from "react";
 import { 
   Table, 
@@ -64,9 +65,11 @@ export function CertificationTable({
             <TableHead>Product Type</TableHead>
             <TableHead>Material Categories</TableHead>
             <TableHead>Testing Lab</TableHead>
+            <TableHead>Approved By</TableHead>
+            <TableHead>Sample Qty</TableHead>
             <TableHead>Status</TableHead>
             <TableHead>Last Updated</TableHead>
-            <TableHead>Due Date</TableHead>
+            <TableHead>Est. Due Date</TableHead>
             <TableHead>Paid For By</TableHead>
             <TableHead className="text-right">Actions</TableHead>
           </TableRow>
@@ -74,7 +77,7 @@ export function CertificationTable({
         <TableBody>
           {certifications.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={11} className="text-center py-10 text-gray-500">
+              <TableCell colSpan={13} className="text-center py-10 text-gray-500">
                 No certifications found. Create a new one to get started.
               </TableCell>
             </TableRow>
@@ -131,6 +134,8 @@ export function CertificationTable({
                     </div>
                   </TableCell>
                   <TableCell>{certification.testingLaboratory}</TableCell>
+                  <TableCell>{certification.testingApprovedBy || '-'}</TableCell>
+                  <TableCell>{certification.sampleQuantity || '-'}</TableCell>
                   <TableCell>
                     <Badge 
                       variant="outline"
@@ -142,6 +147,11 @@ export function CertificationTable({
                   <TableCell>{formatDate(certification.lastUpdatedOn)}</TableCell>
                   <TableCell className={overdue ? "text-red-600 font-medium" : ""}>
                     {formatDate(certification.dueDate)}
+                    {certification.dueDateHistory && certification.dueDateHistory.length > 0 && (
+                      <Badge variant="outline" className="ml-1 text-xs">
+                        Updated
+                      </Badge>
+                    )}
                   </TableCell>
                   <TableCell>
                     {certification.paymentInfo.paidForBy}

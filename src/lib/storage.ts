@@ -1,4 +1,5 @@
-import { Certification, CertificationStatus, UploadFile, ProductType, TestingLaboratory, MaterialCategory, PRODUCT_TYPES, TESTING_LABORATORIES, MATERIAL_CATEGORIES } from "./types";
+
+import { Certification, CertificationStatus, UploadFile, ProductType, TestingLaboratory, MaterialCategory, PRODUCT_TYPES, TESTING_LABORATORIES, MATERIAL_CATEGORIES, DueDateChange } from "./types";
 
 const STORAGE_KEY = 'cert-board-certifications';
 const CUSTOM_PRODUCT_TYPES_KEY = 'cert-board-custom-product-types';
