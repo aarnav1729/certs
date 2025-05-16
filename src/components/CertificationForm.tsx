@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from "react";
 import { 
   Dialog,
@@ -442,15 +441,15 @@ export function CertificationForm({
               <div className="space-y-2">
                 <Label htmlFor="productionLine">Production Line</Label>
                 <Select 
-                  value={productionLine || ''} 
-                  onValueChange={(value: ProductionLine) => setProductionLine(value)}
+                  value={productionLine || 'none'} 
+                  onValueChange={(value: string) => setProductionLine(value === 'none' ? undefined : value as ProductionLine)}
                   disabled={isViewMode}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Select production line" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">Select a line</SelectItem>
+                    <SelectItem value="none">Select a line</SelectItem>
                     {PRODUCTION_LINES.map(line => (
                       <SelectItem key={line} value={line}>{line}</SelectItem>
                     ))}
