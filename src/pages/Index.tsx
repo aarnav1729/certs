@@ -21,8 +21,28 @@ const Index = () => {
   
   const loadCertifications = () => {
     const data = getCertifications();
-    // Sort certifications - overdue first, then in progress, then completed last
-    sortCertifications(data);
+    
+    // Custom sorting:
+    // 1. Overdue items (not completed) at the top
+    // 2. In progress and not started in the middle
+    // 3. Completed items at the bottom
+    data.sort((a, b) => {
+      const now = new Date();
+      const aDueDate = new Date(a.dueDate);
+      const bDueDate = new Date(b.dueDate);
+      const aIsOverdue = aDueDate < now && a.status !== 'Completed';
+      const bIsOverdue = bDueDate < now && b.status !== 'Completed';
+      
+      if (aIsOverdue && !bIsOverdue) return -1;
+      if (!aIsOverdue && bIsOverdue) return 1;
+      
+      if (a.status === 'Completed' && b.status !== 'Completed') return 1;
+      if (a.status !== 'Completed' && b.status === 'Completed') return -1;
+      
+      // For items in the same category, sort by due date (recent first)
+      return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
+    });
+    
     setCertifications(data);
   };
   

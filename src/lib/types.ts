@@ -35,24 +35,43 @@ export const MATERIAL_CATEGORIES: MaterialCategory[] = [
 ];
 
 export type TestingLaboratory = 
-  | 'TUV Rheinland'
-  | 'UL India'
-  | 'URS'
-  | 'PVEL Lab'
-  | 'HPHY6'
+  | 'Bharat Test House Pvt Ltd, Haryana'
+  | 'Delhi Test House, Haryana'
+  | 'Hi Physix Laboratory India Pvt. Ltd., Pune'
+  | 'National Institute of Solar Energy, Gurgaon (empaneled)'
+  | 'URS Products and Testing Pvt Ltd, Noida'
+  | 'Mitsui Chemicals India Private Limited, Ahemdabad'
+  | 'UL India Pvt Ltd, Bangalore'
+  | 'TUV Rheinland (India) Pvt Limited, Bangalore'
   | string;
 
 export const TESTING_LABORATORIES: TestingLaboratory[] = [
-  'TUV Rheinland',
-  'UL India',
-  'URS',
-  'PVEL Lab',
-  'HPHY6'
+  'Bharat Test House Pvt Ltd, Haryana',
+  'Delhi Test House, Haryana',
+  'Hi Physix Laboratory India Pvt. Ltd., Pune',
+  'National Institute of Solar Energy, Gurgaon (empaneled)',
+  'URS Products and Testing Pvt Ltd, Noida',
+  'Mitsui Chemicals India Private Limited, Ahemdabad',
+  'UL India Pvt Ltd, Bangalore',
+  'TUV Rheinland (India) Pvt Limited, Bangalore'
 ];
 
-export type PaidForBy = 'Premier' | 'Supplier';
+export type PaidForBy = 'Premier' | 'Supplier' | 'Split';
+
+export type CurrencyType = 'INR' | 'USD';
 
 export type CertificationStatus = 'Not Started Yet' | 'In Progress' | 'Completed';
+
+export type CertificationType = 'Standard' | 'Customized';
+
+export type ProductionLine = 'PEIPL' | 'PEPPL' | 'PEGEPL 1' | 'PEGEPL 2';
+
+export const PRODUCTION_LINES: ProductionLine[] = [
+  'PEIPL',
+  'PEPPL',
+  'PEGEPL 1',
+  'PEGEPL 2'
+];
 
 export interface UploadFile {
   id: string;
@@ -63,9 +82,17 @@ export interface UploadFile {
 
 export interface PaymentInfo {
   paidForBy: PaidForBy;
+  currency: CurrencyType;
   amount?: number;
   supplierName?: string;
+  supplierAmount?: number;
+  premierAmount?: number;
   invoiceAttachment?: UploadFile;
+}
+
+export interface CustomizationInfo {
+  customerName?: string;
+  comments?: string;
 }
 
 export interface DueDateChange {
@@ -92,5 +119,8 @@ export interface Certification {
   uploads: UploadFile[];
   paymentInfo: PaymentInfo;
   sampleQuantity?: number;
+  certificationType: CertificationType;
+  customizationInfo?: CustomizationInfo;
+  productionLine?: ProductionLine;
   createdAt: string;
 }

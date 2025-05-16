@@ -54,6 +54,16 @@ export function CertificationTable({
     return due < now;
   };
 
+  const getRowBackground = (certification: Certification) => {
+    if (certification.status === 'Completed') {
+      return 'bg-green-50';
+    } else if (isOverdue(certification.dueDate)) {
+      return 'bg-red-50';
+    } else {
+      return 'bg-yellow-50';
+    }
+  };
+
   return (
     <div className="rounded-md border bg-white overflow-x-auto">
       <Table>
@@ -67,6 +77,8 @@ export function CertificationTable({
             <TableHead>Testing Lab</TableHead>
             <TableHead>Approved By</TableHead>
             <TableHead>Sample Qty</TableHead>
+            <TableHead>Line</TableHead>
+            <TableHead>Certification Type</TableHead>
             <TableHead>Status</TableHead>
             <TableHead>Last Updated</TableHead>
             <TableHead>Est. Due Date</TableHead>
@@ -77,18 +89,17 @@ export function CertificationTable({
         <TableBody>
           {certifications.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={13} className="text-center py-10 text-gray-500">
+              <TableCell colSpan={15} className="text-center py-10 text-gray-500">
                 No certifications found. Create a new one to get started.
               </TableCell>
             </TableRow>
           ) : (
             certifications.map((certification) => {
-              const overdue = isOverdue(certification.dueDate) && certification.status !== 'Completed';
-              
+              const rowBackground = getRowBackground(certification);
               return (
                 <TableRow 
                   key={certification.id}
-                  className={overdue ? "bg-red-50" : ""}
+                  className={rowBackground}
                 >
                   <TableCell className="font-medium">
                     {certification.serialNumber}
@@ -110,7 +121,6 @@ export function CertificationTable({
                           </Badge>
                         ))
                       ) : (
-                        // Handle legacy format (for backward compatibility)
                         <Badge 
                           variant="outline" 
                           className="text-xs bg-gray-100"
@@ -136,6 +146,16 @@ export function CertificationTable({
                   <TableCell>{certification.testingLaboratory}</TableCell>
                   <TableCell>{certification.testingApprovedBy || '-'}</TableCell>
                   <TableCell>{certification.sampleQuantity || '-'}</TableCell>
+                  <TableCell>{certification.productionLine || '-'}</TableCell>
+                  <TableCell>
+                    {certification.certificationType}
+                    {certification.certificationType === 'Customized' && 
+                      certification.customizationInfo?.customerName && (
+                      <span className="block text-xs">
+                        For: {certification.customizationInfo.customerName}
+                      </span>
+                    )}
+                  </TableCell>
                   <TableCell>
                     <Badge 
                       variant="outline"
@@ -145,7 +165,7 @@ export function CertificationTable({
                     </Badge>
                   </TableCell>
                   <TableCell>{formatDate(certification.lastUpdatedOn)}</TableCell>
-                  <TableCell className={overdue ? "text-red-600 font-medium" : ""}>
+                  <TableCell className={isOverdue(certification.dueDate) && certification.status !== 'Completed' ? "text-red-600 font-medium" : ""}>
                     {formatDate(certification.dueDate)}
                     {certification.dueDateHistory && certification.dueDateHistory.length > 0 && (
                       <Badge variant="outline" className="ml-1 text-xs">
@@ -154,7 +174,9 @@ export function CertificationTable({
                     )}
                   </TableCell>
                   <TableCell>
-                    {certification.paymentInfo.paidForBy}
+                    {certification.paymentInfo.paidForBy === 'Split' 
+                      ? 'Split Payment'
+                      : certification.paymentInfo.paidForBy}
                     {certification.paymentInfo.paidForBy === 'Supplier' && 
                       certification.paymentInfo.supplierName && 
                       ` - ${certification.paymentInfo.supplierName}`

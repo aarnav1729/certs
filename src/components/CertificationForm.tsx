@@ -18,7 +18,11 @@ import { toast } from "sonner";
 import { 
   Certification, 
   CertificationStatus,
+  CertificationType,
   PaidForBy,
+  CurrencyType,
+  ProductionLine,
+  PRODUCTION_LINES,
   UploadFile,
   MaterialCategory,
   ProductType,
@@ -36,7 +40,7 @@ import {
   saveCustomMaterialCategory
 } from "@/lib/storage";
 import { format } from "date-fns";
-import { X, Upload, PlusCircle, Mail, Calendar, History, Box, Check } from "lucide-react";
+import { X, Upload, PlusCircle, Mail, Calendar, History, Box, Check, DollarSign } from "lucide-react";
 
 interface CertificationFormProps {
   isOpen: boolean;
@@ -60,7 +64,7 @@ export function CertificationForm({
   const [materialCategories, setMaterialCategories] = useState<MaterialCategory[]>([]);
   const [customMaterialCategory, setCustomMaterialCategory] = useState('');
   const [material, setMaterial] = useState('');
-  const [testingLaboratory, setTestingLaboratory] = useState<TestingLaboratory>('TUV Rheinland');
+  const [testingLaboratory, setTestingLaboratory] = useState<TestingLaboratory>('Bharat Test House Pvt Ltd, Haryana');
   const [testingApprovedBy, setTestingApprovedBy] = useState('');
   const [customTestingLaboratory, setCustomTestingLaboratory] = useState('');
   const [status, setStatus] = useState<CertificationStatus>('Not Started Yet');
@@ -69,10 +73,17 @@ export function CertificationForm({
   const [remarks, setRemarks] = useState('');
   const [uploads, setUploads] = useState<UploadFile[]>([]);
   const [paidForBy, setPaidForBy] = useState<PaidForBy>('Premier');
+  const [currency, setCurrency] = useState<CurrencyType>('INR');
   const [amount, setAmount] = useState<number | undefined>();
   const [supplierName, setSupplierName] = useState('');
+  const [supplierAmount, setSupplierAmount] = useState<number | undefined>();
+  const [premierAmount, setPremierAmount] = useState<number | undefined>();
   const [invoiceAttachment, setInvoiceAttachment] = useState<UploadFile | undefined>();
   const [sampleQuantity, setSampleQuantity] = useState<number | undefined>();
+  const [certificationType, setCertificationType] = useState<CertificationType>('Standard');
+  const [customerName, setCustomerName] = useState('');
+  const [comments, setComments] = useState('');
+  const [productionLine, setProductionLine] = useState<ProductionLine | undefined>();
   
   const [allProductTypes, setAllProductTypes] = useState<string[]>([]);
   const [allTestingLaboratories, setAllTestingLaboratories] = useState<TestingLaboratory[]>([]);
@@ -101,7 +112,7 @@ export function CertificationForm({
       setProductType(Array.isArray(initialData.productType) ? initialData.productType : []);
       setMaterialCategories(initialData.materialCategories || []);
       setMaterial(initialData.material || '');
-      setTestingLaboratory(initialData.testingLaboratory || 'TUV Rheinland');
+      setTestingLaboratory(initialData.testingLaboratory || 'Bharat Test House Pvt Ltd, Haryana');
       setTestingApprovedBy(initialData.testingApprovedBy || '');
       setStatus(initialData.status || 'Not Started Yet');
       setDueDate(initialData.dueDate ? initialData.dueDate.split('T')[0] : '');
@@ -109,10 +120,17 @@ export function CertificationForm({
       setRemarks(initialData.remarks || '');
       setUploads(initialData.uploads || []);
       setPaidForBy(initialData.paymentInfo?.paidForBy || 'Premier');
+      setCurrency(initialData.paymentInfo?.currency || 'INR');
       setAmount(initialData.paymentInfo?.amount);
       setSupplierName(initialData.paymentInfo?.supplierName || '');
+      setSupplierAmount(initialData.paymentInfo?.supplierAmount);
+      setPremierAmount(initialData.paymentInfo?.premierAmount);
       setInvoiceAttachment(initialData.paymentInfo?.invoiceAttachment);
       setSampleQuantity(initialData.sampleQuantity || undefined);
+      setCertificationType(initialData.certificationType || 'Standard');
+      setCustomerName(initialData.customizationInfo?.customerName || '');
+      setComments(initialData.customizationInfo?.comments || '');
+      setProductionLine(initialData.productionLine);
     } else {
       // Reset form if no initialData
       resetForm();
@@ -129,7 +147,7 @@ export function CertificationForm({
     setCustomMaterialCategory('');
     setShowCustomMaterialCategory(false);
     setMaterial('');
-    setTestingLaboratory('TUV Rheinland');
+    setTestingLaboratory('Bharat Test House Pvt Ltd, Haryana');
     setTestingApprovedBy('');
     setCustomTestingLaboratory('');
     setShowCustomTestingLaboratory(false);
@@ -139,10 +157,17 @@ export function CertificationForm({
     setRemarks('');
     setUploads([]);
     setPaidForBy('Premier');
+    setCurrency('INR');
     setAmount(undefined);
     setSupplierName('');
+    setSupplierAmount(undefined);
+    setPremierAmount(undefined);
     setInvoiceAttachment(undefined);
     setSampleQuantity(undefined);
+    setCertificationType('Standard');
+    setCustomerName('');
+    setComments('');
+    setProductionLine(undefined);
   };
   
   const handleSubmit = async (e: React.FormEvent) => {
@@ -150,6 +175,11 @@ export function CertificationForm({
     
     if (!projectName || !testingLaboratory || !material || !dueDate || materialCategories.length === 0 || productType.length === 0) {
       toast.error("Please fill in all required fields");
+      return;
+    }
+
+    if (certificationType === 'Customized' && !customerName) {
+      toast.error("Customer name is required for customized certification type");
       return;
     }
     
@@ -189,10 +219,19 @@ export function CertificationForm({
       // Create payment info object
       const paymentInfo = {
         paidForBy,
+        currency,
         amount: paidForBy === 'Premier' ? amount : undefined,
-        supplierName: paidForBy === 'Supplier' ? supplierName : undefined,
+        supplierName: (paidForBy === 'Supplier' || paidForBy === 'Split') ? supplierName : undefined,
+        supplierAmount: paidForBy === 'Split' ? supplierAmount : undefined,
+        premierAmount: paidForBy === 'Split' ? premierAmount : undefined,
         invoiceAttachment
       };
+
+      // Create customization info if needed
+      const customizationInfo = certificationType === 'Customized' ? {
+        customerName,
+        comments
+      } : undefined;
       
       onSubmit({
         projectName,
@@ -208,7 +247,10 @@ export function CertificationForm({
         remarks,
         uploads,
         paymentInfo,
-        sampleQuantity
+        sampleQuantity,
+        certificationType,
+        customizationInfo,
+        productionLine
       });
       
       // Reset form if creating
@@ -378,6 +420,68 @@ export function CertificationForm({
                 </Select>
               </div>
             </div>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="certificationType">Certification Type *</Label>
+                <Select 
+                  value={certificationType} 
+                  onValueChange={(value: CertificationType) => setCertificationType(value)}
+                  disabled={isViewMode}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select certification type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Standard">Standard</SelectItem>
+                    <SelectItem value="Customized">Customized</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="productionLine">Production Line</Label>
+                <Select 
+                  value={productionLine || ''} 
+                  onValueChange={(value: ProductionLine) => setProductionLine(value)}
+                  disabled={isViewMode}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select production line" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">Select a line</SelectItem>
+                    {PRODUCTION_LINES.map(line => (
+                      <SelectItem key={line} value={line}>{line}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            
+            {certificationType === 'Customized' && (
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="customerName">Customer Name *</Label>
+                  <Input 
+                    id="customerName" 
+                    value={customerName} 
+                    onChange={(e) => setCustomerName(e.target.value)}
+                    disabled={isViewMode}
+                    required={certificationType === 'Customized'}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="comments">Customer Comments</Label>
+                  <Input 
+                    id="comments" 
+                    value={comments} 
+                    onChange={(e) => setComments(e.target.value)}
+                    disabled={isViewMode}
+                  />
+                </div>
+              </div>
+            )}
             
             <div className="space-y-2">
               <div className="flex justify-between items-center">
@@ -737,66 +841,61 @@ export function CertificationForm({
                   <SelectContent>
                     <SelectItem value="Premier">Premier</SelectItem>
                     <SelectItem value="Supplier">Supplier</SelectItem>
+                    <SelectItem value="Split">Split Payment</SelectItem>
                   </SelectContent>
                 </Select>
-                
-                {paidForBy === 'Premier' ? (
-                  <div className="grid grid-cols-2 gap-4">
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="currency">Currency *</Label>
+                    <Select 
+                      value={currency} 
+                      onValueChange={(value: CurrencyType) => setCurrency(value)}
+                      disabled={isViewMode}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select currency" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="INR">INR (₹)</SelectItem>
+                        <SelectItem value="USD">USD ($)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {paidForBy === 'Premier' && (
                     <div className="space-y-2">
-                      <Label htmlFor="amount">Amount in $ (Optional)</Label>
-                      <Input 
-                        id="amount" 
-                        type="number" 
-                        min="0"
-                        step="0.01"
-                        value={amount || ''} 
-                        onChange={(e) => setAmount(e.target.value ? parseFloat(e.target.value) : undefined)}
-                        disabled={isViewMode}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="invoiceAttachment">Invoice Attachment (Optional)</Label>
+                      <Label htmlFor="amount">Amount (Optional)</Label>
                       <div className="flex items-center gap-2">
-                        {!invoiceAttachment ? (
-                          <>
-                            <Input
-                              id="invoiceAttachment"
-                              type="file"
-                              className="hidden"
-                              onChange={handleInvoiceAttachmentChange}
-                              disabled={isViewMode}
-                            />
-                            {!isViewMode && (
-                              <Button
-                                type="button"
-                                variant="outline"
-                                onClick={() => document.getElementById('invoiceAttachment')?.click()}
-                              >
-                                <Upload className="h-4 w-4 mr-2" />
-                                Upload Invoice
-                              </Button>
-                            )}
-                          </>
-                        ) : (
-                          <div className="flex items-center justify-between p-2 border rounded w-full">
-                            <div className="truncate flex-1">{invoiceAttachment.name}</div>
-                            {!isViewMode && (
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                onClick={handleRemoveInvoice}
-                                className="text-red-500"
-                              >
-                                <X className="h-4 w-4" />
-                              </Button>
-                            )}
-                          </div>
-                        )}
+                        <DollarSign className="h-4 w-4 text-gray-500" />
+                        <Input 
+                          id="amount" 
+                          type="number" 
+                          min="0"
+                          step="0.01"
+                          value={amount || ''} 
+                          onChange={(e) => setAmount(e.target.value ? parseFloat(e.target.value) : undefined)}
+                          disabled={isViewMode}
+                        />
                       </div>
                     </div>
-                  </div>
-                ) : (
+                  )}
+                  
+                  {paidForBy === 'Supplier' && (
+                    <div className="space-y-2">
+                      <Label htmlFor="supplierName">Supplier Name *</Label>
+                      <Input 
+                        id="supplierName" 
+                        value={supplierName} 
+                        onChange={(e) => setSupplierName(e.target.value)}
+                        disabled={isViewMode}
+                        required={paidForBy === 'Supplier' || paidForBy === 'Split'}
+                      />
+                    </div>
+                  )}
+                </div>
+                
+                {paidForBy === 'Split' && (
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label htmlFor="supplierName">Supplier Name *</Label>
@@ -805,64 +904,87 @@ export function CertificationForm({
                         value={supplierName} 
                         onChange={(e) => setSupplierName(e.target.value)}
                         disabled={isViewMode}
-                        required={paidForBy === 'Supplier'}
+                        required={paidForBy === 'Split'}
                       />
                     </div>
+                    
                     <div className="space-y-2">
-                      <Label htmlFor="amount">Amount in $ (Optional)</Label>
-                      <Input 
-                        id="amount" 
-                        type="number" 
-                        min="0"
-                        step="0.01"
-                        value={amount || ''} 
-                        onChange={(e) => setAmount(e.target.value ? parseFloat(e.target.value) : undefined)}
-                        disabled={isViewMode}
-                      />
-                    </div>
-                    <div className="space-y-2 col-span-2">
-                      <Label htmlFor="invoiceAttachment">Invoice Attachment (Optional)</Label>
+                      <Label htmlFor="supplierAmount">Supplier Amount *</Label>
                       <div className="flex items-center gap-2">
-                        {!invoiceAttachment ? (
-                          <>
-                            <Input
-                              id="invoiceAttachment"
-                              type="file"
-                              className="hidden"
-                              onChange={handleInvoiceAttachmentChange}
-                              disabled={isViewMode}
-                            />
-                            {!isViewMode && (
-                              <Button
-                                type="button"
-                                variant="outline"
-                                onClick={() => document.getElementById('invoiceAttachment')?.click()}
-                              >
-                                <Upload className="h-4 w-4 mr-2" />
-                                Upload Invoice
-                              </Button>
-                            )}
-                          </>
-                        ) : (
-                          <div className="flex items-center justify-between p-2 border rounded w-full">
-                            <div className="truncate flex-1">{invoiceAttachment.name}</div>
-                            {!isViewMode && (
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                onClick={handleRemoveInvoice}
-                                className="text-red-500"
-                              >
-                                <X className="h-4 w-4" />
-                              </Button>
-                            )}
-                          </div>
-                        )}
+                        <DollarSign className="h-4 w-4 text-gray-500" />
+                        <Input 
+                          id="supplierAmount" 
+                          type="number" 
+                          min="0"
+                          step="0.01"
+                          value={supplierAmount || ''} 
+                          onChange={(e) => setSupplierAmount(e.target.value ? parseFloat(e.target.value) : undefined)}
+                          disabled={isViewMode}
+                          required={paidForBy === 'Split'}
+                        />
+                      </div>
+                    </div>
+                    
+                    <div className="space-y-2">
+                      <Label htmlFor="premierAmount">Premier Amount *</Label>
+                      <div className="flex items-center gap-2">
+                        <DollarSign className="h-4 w-4 text-gray-500" />
+                        <Input 
+                          id="premierAmount" 
+                          type="number" 
+                          min="0"
+                          step="0.01"
+                          value={premierAmount || ''} 
+                          onChange={(e) => setPremierAmount(e.target.value ? parseFloat(e.target.value) : undefined)}
+                          disabled={isViewMode}
+                          required={paidForBy === 'Split'}
+                        />
                       </div>
                     </div>
                   </div>
                 )}
+                
+                <div className="space-y-2">
+                  <Label htmlFor="invoiceAttachment">Invoice Attachment (Optional)</Label>
+                  <div className="flex items-center gap-2">
+                    {!invoiceAttachment ? (
+                      <>
+                        <Input
+                          id="invoiceAttachment"
+                          type="file"
+                          className="hidden"
+                          onChange={handleInvoiceAttachmentChange}
+                          disabled={isViewMode}
+                        />
+                        {!isViewMode && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => document.getElementById('invoiceAttachment')?.click()}
+                          >
+                            <Upload className="h-4 w-4 mr-2" />
+                            Upload Invoice
+                          </Button>
+                        )}
+                      </>
+                    ) : (
+                      <div className="flex items-center justify-between p-2 border rounded w-full">
+                        <div className="truncate flex-1">{invoiceAttachment.name}</div>
+                        {!isViewMode && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            onClick={handleRemoveInvoice}
+                            className="text-red-500"
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
             
