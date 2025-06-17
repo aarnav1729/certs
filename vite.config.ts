@@ -12,7 +12,7 @@ export default defineConfig(({ mode }) => ({
     proxy: {
       // Proxy all /api requests to your backend on port 7777
       "/api": {
-        target: "http://localhost:7777",
+        target: "https://certs-1d5v.onrender.com",
         changeOrigin: true,
         rewrite: (path) => path,
       },
