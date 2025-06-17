@@ -9,7 +9,7 @@ import {
   MATERIAL_CATEGORIES
 } from "./types";
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || "";
+const API_BASE = "https://certs-1d5v.onrender.com";
 
 async function handleResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
