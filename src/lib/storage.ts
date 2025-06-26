@@ -10,6 +10,7 @@ import {
 } from "./types";
 
 const API_BASE = "https://certs-1d5v.onrender.com";
+//const API_BASE = "http://localhost:7777";
 
 async function handleResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {

@@ -60,7 +60,7 @@ const PaymentInfoSchema = new mongoose.Schema(
   {
     paidForBy: {
       type: String,
-      enum: ["Premier", "Supplier", "Split"],
+      enum: ["Premier", "Supplier", "Split", "Not Discussed Yet"],
       required: true,
     },
     currency: { type: String, enum: ["INR", "USD"], required: true },
@@ -108,7 +108,7 @@ const CertificationSchema = new mongoose.Schema({
     required: true,
   },
   customizationInfo: CustomizationInfoSchema,
-  productionLine: { type: String },
+  productionLine: { type: [String] },
   createdAt: { type: Date, default: Date.now },
 });
 

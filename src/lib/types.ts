@@ -1,4 +1,3 @@
-
 export type ProductType = string[];
 
 export const PRODUCT_TYPES: string[] = [
@@ -56,7 +55,7 @@ export const TESTING_LABORATORIES: TestingLaboratory[] = [
   'TUV Rheinland (India) Pvt Limited, Bangalore'
 ];
 
-export type PaidForBy = 'Premier' | 'Supplier' | 'Split';
+export type PaidForBy = 'Premier' | 'Supplier' | 'Split' | 'Not Discussed Yet';
 
 export type CurrencyType = 'INR' | 'USD';
 
@@ -65,7 +64,6 @@ export type CertificationStatus = 'Not Started Yet' | 'In Progress' | 'Completed
 export type CertificationType = 'Standard' | 'Customized';
 
 export type ProductionLine = 'PEIPL' | 'PEPPL' | 'PEGEPL 1' | 'PEGEPL 2';
-
 export const PRODUCTION_LINES: ProductionLine[] = [
   'PEIPL',
   'PEPPL',
@@ -121,6 +119,6 @@ export interface Certification {
   sampleQuantity?: number;
   certificationType: CertificationType;
   customizationInfo?: CustomizationInfo;
-  productionLine?: ProductionLine;
+  productionLine?: ProductionLine[];
   createdAt: string;
 }

@@ -1,12 +1,11 @@
-
 import { useState } from "react";
-import { 
-  Table, 
-  TableBody, 
-  TableCell, 
-  TableHead, 
-  TableHeader, 
-  TableRow 
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -21,15 +20,15 @@ interface CertificationTableProps {
   onDataChange: () => void;
 }
 
-export function CertificationTable({ 
-  certifications, 
-  onEdit, 
-  onView, 
-  onDataChange 
+export function CertificationTable({
+  certifications,
+  onEdit,
+  onView,
+  onDataChange,
 }: CertificationTableProps) {
   const formatDate = (dateString: string) => {
     try {
-      return format(new Date(dateString), 'dd MMM yyyy');
+      return format(new Date(dateString), "dd MMM yyyy");
     } catch (e) {
       return dateString;
     }
@@ -37,14 +36,14 @@ export function CertificationTable({
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'Not Started Yet':
-        return 'bg-gray-500 text-white border-gray-500';
-      case 'In Progress':
-        return 'bg-status-inprogress text-white border-status-inprogress';
-      case 'Completed':
-        return 'bg-status-complete text-white border-status-complete';
+      case "Not Started Yet":
+        return "bg-gray-500 text-white border-gray-500";
+      case "In Progress":
+        return "bg-status-inprogress text-white border-status-inprogress";
+      case "Completed":
+        return "bg-status-complete text-white border-status-complete";
       default:
-        return 'bg-gray-500 text-white border-gray-500';
+        return "bg-gray-500 text-white border-gray-500";
     }
   };
 
@@ -55,12 +54,12 @@ export function CertificationTable({
   };
 
   const getRowBackground = (certification: Certification) => {
-    if (certification.status === 'Completed') {
-      return 'bg-green-50';
+    if (certification.status === "Completed") {
+      return "bg-green-50";
     } else if (isOverdue(certification.dueDate)) {
-      return 'bg-red-50';
+      return "bg-red-50";
     } else {
-      return 'bg-yellow-50';
+      return "bg-yellow-50";
     }
   };
 
@@ -89,7 +88,10 @@ export function CertificationTable({
         <TableBody>
           {certifications.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={15} className="text-center py-10 text-gray-500">
+              <TableCell
+                colSpan={15}
+                className="text-center py-10 text-gray-500"
+              >
                 No certifications found. Create a new one to get started.
               </TableCell>
             </TableRow>
@@ -97,32 +99,27 @@ export function CertificationTable({
             certifications.map((certification) => {
               const rowBackground = getRowBackground(certification);
               return (
-                <TableRow 
-                  key={certification.id}
-                  className={rowBackground}
-                >
+                <TableRow key={certification.id} className={rowBackground}>
                   <TableCell className="font-medium">
                     {certification.serialNumber}
                   </TableCell>
                   <TableCell>{certification.projectName}</TableCell>
-                  <TableCell>
-                    {certification.material}
-                  </TableCell>
+                  <TableCell>{certification.material}</TableCell>
                   <TableCell>
                     <div className="flex flex-wrap gap-1">
                       {Array.isArray(certification.productType) ? (
                         certification.productType.map((type, idx) => (
-                          <Badge 
-                            key={idx} 
-                            variant="outline" 
+                          <Badge
+                            key={idx}
+                            variant="outline"
                             className="text-xs bg-gray-100"
                           >
                             {type}
                           </Badge>
                         ))
                       ) : (
-                        <Badge 
-                          variant="outline" 
+                        <Badge
+                          variant="outline"
                           className="text-xs bg-gray-100"
                         >
                           {certification.productType}
@@ -133,9 +130,9 @@ export function CertificationTable({
                   <TableCell>
                     <div className="flex flex-wrap gap-1">
                       {certification.materialCategories.map((category, idx) => (
-                        <Badge 
-                          key={idx} 
-                          variant="outline" 
+                        <Badge
+                          key={idx}
+                          variant="outline"
                           className="text-xs bg-gray-100"
                         >
                           {category}
@@ -144,55 +141,84 @@ export function CertificationTable({
                     </div>
                   </TableCell>
                   <TableCell>{certification.testingLaboratory}</TableCell>
-                  <TableCell>{certification.testingApprovedBy || '-'}</TableCell>
-                  <TableCell>{certification.sampleQuantity || '-'}</TableCell>
-                  <TableCell>{certification.productionLine || '-'}</TableCell>
+                  <TableCell>
+                    {certification.testingApprovedBy || "-"}
+                  </TableCell>
+                  <TableCell>{certification.sampleQuantity || "-"}</TableCell>
+                  <TableCell>
+                    <div className="flex flex-wrap gap-1">
+                      {Array.isArray(certification.productionLine) &&
+                      certification.productionLine.length > 0 ? (
+                        certification.productionLine.map((line, idx) => (
+                          <Badge
+                            key={idx}
+                            variant="outline"
+                            className="text-xs bg-gray-100"
+                          >
+                            {line}
+                          </Badge>
+                        ))
+                      ) : (
+                        <span className="text-gray-500">-</span>
+                      )}
+                    </div>
+                  </TableCell>
+
                   <TableCell>
                     {certification.certificationType}
-                    {certification.certificationType === 'Customized' && 
+                    {certification.certificationType === "Customized" &&
                       certification.customizationInfo?.customerName && (
-                      <span className="block text-xs">
-                        For: {certification.customizationInfo.customerName}
-                      </span>
-                    )}
+                        <span className="block text-xs">
+                          For: {certification.customizationInfo.customerName}
+                        </span>
+                      )}
                   </TableCell>
                   <TableCell>
-                    <Badge 
+                    <Badge
                       variant="outline"
                       className={getStatusColor(certification.status)}
                     >
                       {certification.status}
                     </Badge>
                   </TableCell>
-                  <TableCell>{formatDate(certification.lastUpdatedOn)}</TableCell>
-                  <TableCell className={isOverdue(certification.dueDate) && certification.status !== 'Completed' ? "text-red-600 font-medium" : ""}>
+                  <TableCell>
+                    {formatDate(certification.lastUpdatedOn)}
+                  </TableCell>
+                  <TableCell
+                    className={
+                      isOverdue(certification.dueDate) &&
+                      certification.status !== "Completed"
+                        ? "text-red-600 font-medium"
+                        : ""
+                    }
+                  >
                     {formatDate(certification.dueDate)}
-                    {certification.dueDateHistory && certification.dueDateHistory.length > 0 && (
-                      <Badge variant="outline" className="ml-1 text-xs">
-                        Updated
-                      </Badge>
-                    )}
+                    {certification.dueDateHistory &&
+                      certification.dueDateHistory.length > 0 && (
+                        <Badge variant="outline" className="ml-1 text-xs">
+                          Updated
+                        </Badge>
+                      )}
                   </TableCell>
                   <TableCell>
-                    {certification.paymentInfo.paidForBy === 'Split' 
-                      ? 'Split Payment'
+                    {certification.paymentInfo.paidForBy === "Split"
+                      ? "Split Payment"
                       : certification.paymentInfo.paidForBy}
-                    {certification.paymentInfo.paidForBy === 'Supplier' && 
-                      certification.paymentInfo.supplierName && 
-                      ` - ${certification.paymentInfo.supplierName}`
-                    }
+                    {certification.paymentInfo.paidForBy === "Supplier" &&
+                      certification.paymentInfo.supplierName &&
+                      ` - ${certification.paymentInfo.supplierName}`}
                   </TableCell>
                   <TableCell className="text-right space-x-2 whitespace-nowrap">
-                    <Button 
-                      variant="ghost" 
-                      size="icon" 
+                    <Button
+                      variant="ghost"
+                      size="icon"
                       onClick={() => onView(certification)}
                     >
                       <Eye className="h-4 w-4" />
                     </Button>
-                    <Button 
-                      variant="ghost" 
-                      size="icon" 
+                    <Button
+                      variant="ghost"
+                      size="icon"
                       onClick={() => onEdit(certification)}
                     >
                       <Edit className="h-4 w-4" />
