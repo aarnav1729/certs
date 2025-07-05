@@ -9,8 +9,8 @@ import {
   MATERIAL_CATEGORIES
 } from "./types";
 
-//const API_BASE = "https://certs-1d5v.onrender.com";
-const API_BASE = "http://localhost:7777";
+const API_BASE = "https://certs-1d5v.onrender.com";
+//const API_BASE = "http://localhost:7777";
 
 async function handleResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
@@ -26,6 +26,7 @@ async function handleResponse<T>(res: Response): Promise<T> {
 export async function getCertifications(): Promise<Certification[]> {
   const res = await fetch(`${API_BASE}/api/certifications`, {
     headers: { "Accept": "application/json" },
+    credentials: "include",
   });
   return handleResponse<Certification[]>(res);
 }
@@ -40,6 +41,7 @@ export async function addCertification(
   const res = await fetch(`${API_BASE}/api/certifications`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
+    credentials: "include",
     body: JSON.stringify(data),
   });
   return handleResponse<Certification>(res);
@@ -55,6 +57,7 @@ export async function updateCertification(
   const res = await fetch(`${API_BASE}/api/certifications/${id}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
+    credentials: "include",
     body: JSON.stringify(data),
   });
   return handleResponse<Certification>(res);
@@ -66,6 +69,7 @@ export async function updateCertification(
 export async function deleteCertification(id: string): Promise<void> {
   const res = await fetch(`${API_BASE}/api/certifications/${id}`, {
     method: "DELETE",
+    credentials: "include",
   });
   if (!res.ok) {
     const text = await res.text();
