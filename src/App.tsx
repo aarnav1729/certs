@@ -1,27 +1,41 @@
-import { Toaster } from "@/components/ui/toaster";
-import { Toaster as Sonner } from "@/components/ui/sonner";
-import { TooltipProvider } from "@/components/ui/tooltip";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
-import Index from "./pages/Index";
-import NotFound from "./pages/NotFound";
+import React from "react";
+import {
+  BrowserRouter,
+  Routes,
+  Route,
+  Navigate,
+} from "react-router-dom";
+import { AuthProvider, useAuth } from "@/contexts/AuthContext";
+import LoginPage from "@/pages/Login";
+import Index from "@/pages/Index";
+import NotFound from "@/pages/NotFound";
 
-const queryClient = new QueryClient();
+function PrivateRoute({ children }: { children: JSX.Element }) {
+  const { user } = useAuth();
+  return user ? children : <Navigate to="/login" replace />;
+}
 
-const App = () => (
-  <QueryClientProvider client={queryClient}>
-    <TooltipProvider>
-      <Toaster />
-      <Sonner />
+export default function App() {
+  return (
+    <AuthProvider>
       <BrowserRouter>
         <Routes>
-          <Route path="/" element={<Index />} />
-          {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-          <Route path="*" element={<NotFound />} />
+          <Route path="/login" element={<LoginPage />} />
+
+          <Route
+            path="/*"
+            element={
+              <PrivateRoute>
+                <Routes>
+                  <Route path="/" element={<Index />} />
+                  {/* Add more protected routes here */}
+                  <Route path="*" element={<NotFound />} />
+                </Routes>
+              </PrivateRoute>
+            }
+          />
         </Routes>
       </BrowserRouter>
-    </TooltipProvider>
-  </QueryClientProvider>
-);
-
-export default App;
+    </AuthProvider>
+  );
+}

@@ -23,14 +23,29 @@ const dbConfig = {
 
 // --- APP SETUP ---
 const app = express();
+
+// —– Hard-coded users —–
+const users = [
+  { username: "praful",  password: "praful",  role: "Requestor",     name: "Praful"  },
+  { username: "baskara", password: "baskara", role: "TechnicalHead", name: "Baskara" },
+  { username: "cmk",     password: "cmk",     role: "PlantHead",     name: "CMK"     },
+  { username: "jasveen", password: "jasveen", role: "Director",      name: "Jaasveen"},
+  { username: "vishnu",  password: "vishnu",  role: "COO",           name: "Vishnu"  },
+  { username: "aarnav",  password: "aarnav",  role: "Admin",         name: "Aarnav"  },
+];
+
+
+// --- MIDDLEWARES ---
 app.use(helmet());
 app.use(cors({
-  origin: "http://localhost:8081ß", // your portal
+  origin: "http://localhost:8080", // your portal
   credentials: true,
 }));
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 app.use(morgan("combined"));
+
+
 
 // --- SESSION MIDDLEWARE ---
 const MemoryStore = session.MemoryStore;
@@ -56,20 +71,26 @@ function requireAuth(req, res, next) {
   next();
 }
 
-// --- LOGIN / LOGOUT ---
+// —– LOGIN / LOGOUT —–
 app.post("/api/login", (req, res) => {
-  const { email, id } = req.body;
-  if (!email || !id) return res.status(400).json({ message: "email & id required" });
-  req.session.user = { email, id };
-  res.json({ message: "Logged into cert-board" });
+  const { username, password } = req.body;
+  const user = users.find(u => u.username === username && u.password === password);
+  if (!user) return res.status(401).json({ message: "Invalid credentials" });
+  
+  req.session.user = { username: user.username, role: user.role, name: user.name };
+  res.json({ username: user.username, role: user.role, name: user.name });
 });
 
 app.post("/api/logout", (req, res) => {
   req.session.destroy(err => {
     if (err) console.error(err);
-    res.json({ message: "Logged out of cert-board" });
+    res.json({ message: "Logged out" });
   });
 });
+
+// —– Protect everything under /api from here on —–
+app.use("/api", requireAuth);
+
 
 // --- CRUD ROUTES ---
 app.get("/api/certifications", requireAuth, async (req, res) => {
@@ -683,6 +704,13 @@ async function initDb(pool) {
     END
   `);
 }
+
+// 404 & error handlers at the bottom
+app.use((_, res) => res.status(404).json({ message: "Route not found" }));
+app.use((err, _, res, __) => {
+  console.error(err.stack);
+  res.status(500).json({ message: "Server Error" });
+});
 
 // --- BOOTSTRAP: connect, init DB, then listen ---
 (async () => {
