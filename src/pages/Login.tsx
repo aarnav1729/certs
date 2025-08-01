@@ -25,7 +25,7 @@ export default function LoginPage() {
     { label: "Requestor (Praful)", user: "praful" },
     { label: "Technical Head", user: "baskara" },
     { label: "Plant Head (CMK)", user: "cmk" },
-    { label: "Director (Jaasveen)", user: "jasveen" },
+    { label: "Director (Jasveen)", user: "jasveen" },
     { label: "COO (Vishnu)", user: "vishnu" },
     { label: "Admin (Aarnav)", user: "aarnav" },
   ];

@@ -7,7 +7,6 @@ const helmet = require("helmet");
 const morgan = require("morgan");
 const session = require("express-session");
 const mysql = require("mysql2/promise");
-const mssql = require("mssql");
 
 const { Client } = require("@microsoft/microsoft-graph-client");
 const { ClientSecretCredential } = require("@azure/identity");
@@ -59,21 +58,6 @@ const mysqlConfig = {
   queueLimit: 0,
 };
 
-// --- MSSQL CONFIGURATION ---
-const mssqlConfig = {
-  user: process.env.MSSQL_USER || "SPOT_USER",
-  password: process.env.MSSQL_PASSWORD || "Marvik#72@",
-  server: process.env.MSSQL_SERVER || "10.0.40.10",
-  port: Number(process.env.MSSQL_PORT) || 1433,
-  database: process.env.MSSQL_DB || "certifypro",
-  options: {
-    trustServerCertificate: true,
-    encrypt: false,
-    connectionTimeout: 60000,
-  },
-};
-let mssqlPool;
-
 // Create an “init” pool to ensure the database exists, then a real pool
 let initPool, pool;
 (async () => {
@@ -86,14 +70,6 @@ let initPool, pool;
     console.log("🔌 Connected to MySQL");
     await initDb();
     console.log("✅ All tables & columns are in place");
-
-    // --- parallel MSSQL init ---
-    try {
-      mssqlPool = await mssql.connect(mssqlConfig);
-      console.log("🔌 Connected to MSSQL");
-    } catch (err) {
-      console.error("⚠️  MSSQL connection failed, continuing MySQL-only:", err);
-    }
   } catch (err) {
     console.error("⛔ DB initialization failed", err);
     process.exit(1);
@@ -208,103 +184,7 @@ async function initDb() {
       if (err.errno !== 1060) throw err;
     }
   }
-
-  // --- Mirror schema into MSSQL if connected ---
-  if (mssqlPool) {
-    const run = async (sql) => {
-      try {
-        await mssqlPool.request().batch(sql);
-      } catch (_) {
-        /* ignore already-exists or syntax errors */
-      }
-    };
-
-    // 1. certifications
-    await run(`
-     IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[certifications]') AND type in (N'U'))
-     CREATE TABLE dbo.certifications (
-       id INT IDENTITY(1,1) PRIMARY KEY,
-       project_name            VARCHAR(255) NOT NULL,
-       project_details         TEXT         NOT NULL,
-       material                VARCHAR(255) NOT NULL DEFAULT '',
-       testing_laboratory      VARCHAR(255) NOT NULL,
-       testing_approved_by     VARCHAR(255) NULL,
-       status                  VARCHAR(50)  NOT NULL DEFAULT 'Not Started Yet',
-       due_date                DATE         NOT NULL,
-       last_updated_on         DATETIME     NOT NULL DEFAULT GETDATE(),
-       remarks                 TEXT         NOT NULL,
-       paid_for_by             VARCHAR(50)  NOT NULL,
-       currency                VARCHAR(10)  NOT NULL,
-       amount                  DECIMAL(18,2) NULL,
-       supplier_name           VARCHAR(255) NULL,
-       supplier_amount         DECIMAL(18,2) NULL,
-       premier_amount          DECIMAL(18,2) NULL,
-       customization_customer_name VARCHAR(255) NULL,
-       customization_comments  TEXT         NULL,
-       sample_quantity         INT          NULL,
-       certification_type      VARCHAR(50)  NOT NULL,
-       created_at              DATETIME     NOT NULL DEFAULT GETDATE()
-     );
-   `);
-
-    // 2. certification_product_types
-    await run(`
-     IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[certification_product_types]') AND type in (N'U'))
-     CREATE TABLE dbo.certification_product_types (
-       certification_id INT NOT NULL,
-       product_type     VARCHAR(255) NOT NULL,
-       FOREIGN KEY(certification_id) REFERENCES dbo.certifications(id) ON DELETE CASCADE
-     );
-   `);
-
-    // 3. certification_material_categories
-    await run(`
-     IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[certification_material_categories]') AND type in (N'U'))
-     CREATE TABLE dbo.certification_material_categories (
-       certification_id  INT NOT NULL,
-       material_category VARCHAR(255) NOT NULL,
-       FOREIGN KEY(certification_id) REFERENCES dbo.certifications(id) ON DELETE CASCADE
-     );
-   `);
-
-    // 4. certification_production_lines
-    await run(`
-     IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[certification_production_lines]') AND type in (N'U'))
-     CREATE TABLE dbo.certification_production_lines (
-       certification_id INT NOT NULL,
-       production_line  VARCHAR(255) NOT NULL,
-       FOREIGN KEY(certification_id) REFERENCES dbo.certifications(id) ON DELETE CASCADE
-     );
-   `);
-
-    // 5. due_date_history
-    await run(`
-     IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[due_date_history]') AND type in (N'U'))
-     CREATE TABLE dbo.due_date_history (
-       certification_id INT NOT NULL,
-       previous_date    DATE         NOT NULL,
-       new_date         DATE         NOT NULL,
-       changed_at       DATETIME     NOT NULL DEFAULT GETDATE(),
-       FOREIGN KEY(certification_id) REFERENCES dbo.certifications(id) ON DELETE CASCADE
-     );
-   `);
-
-    // 6. uploads
-    await run(`
-     IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[uploads]') AND type in (N'U'))
-     CREATE TABLE dbo.uploads (
-       id                CHAR(36) NOT NULL PRIMARY KEY,
-       certification_id  INT      NOT NULL,
-       name              VARCHAR(255) NOT NULL,
-       data              TEXT     NOT NULL,
-       type              VARCHAR(100) NOT NULL,
-       is_invoice        BIT      NOT NULL DEFAULT 0,
-       FOREIGN KEY(certification_id) REFERENCES dbo.certifications(id) ON DELETE CASCADE
-     );
-   `);
-  }
 }
-
 // --- APP SETUP ---
 const app = express();
 
@@ -535,25 +415,6 @@ app.post("/api/certifications/:id/approve", requireAuth, async (req, res) => {
       [action, comment || null, certId]
     );
 
-    // MSSQL update fallback
-    if (mssqlPool) {
-      try {
-        await mssqlPool
-          .request()
-          .input("action", mssql.VarChar(20), action)
-          .input("comment", mssql.Text, comment || null)
-          .input("id", mssql.Int, certId).query(`
-           UPDATE dbo.certifications
-             SET ${statusCol} = @action,
-                 ${commentCol} = @comment,
-                 ${atCol}      = GETDATE()
-           WHERE id = @id
-         `);
-      } catch (e) {
-        console.error("⚠️ MSSQL UPDATE failed:", e);
-      }
-    }
-
     // Re-fetch the updated row + all its related arrays
     const [[row]] = await pool.query(
       `SELECT
@@ -573,7 +434,7 @@ app.post("/api/certifications/:id/approve", requireAuth, async (req, res) => {
          amount,
          supplier_name              AS supplierName,
          supplier_amount            AS supplierAmount,
-         premier_amount             AS premiereAmount,
+         premier_amount             AS premierAmount,
          customization_customer_name AS customerName,
          customization_comments     AS comments,
          sample_quantity            AS sampleQuantity,
@@ -780,6 +641,7 @@ app.post("/api/certifications/:id/approve", requireAuth, async (req, res) => {
             ${detailsTable(certId, row.projectName, row.dueDate)}
             <p style="font-size:14px; margin-top:20px;">Please review it at your earliest convenience.</p>
             <p style="font-size:14px; margin-bottom:30px;">Your prompt action is appreciated: <a href="https://certifypro.premierenergies.com:12443/" style="color:#0078D4; text-decoration:none;">View Request</a></p>
+
             <p style="font-size:14px; margin:0;">
               Thanks &amp; Regards,<br/>
               Team CertifyPro
@@ -868,7 +730,7 @@ app.get("/api/certifications/:id", async (req, res) => {
     );
     const [inv] = await pool.query(
       "SELECT id, name, data, type FROM uploads WHERE certification_id=? AND is_invoice=1",
-      [id]  
+      [id]
     );
 
     res.json({
@@ -1000,54 +862,6 @@ app.post("/api/certifications", async (req, res) => {
     );
     const certId = result.insertId;
 
-    // MSSQL fallback for main INSERT
-    if (mssqlPool) {
-      try {
-        await mssqlPool
-          .request()
-          .input("projectName", mssql.VarChar(255), projectName)
-          .input("projectDetails", mssql.Text, projectDetails ?? "")
-          .input("material", mssql.VarChar(255), material)
-          .input("testing_laboratory", mssql.VarChar(255), testingLaboratory)
-          .input("testing_approved_by", mssql.VarChar(255), approvedByVal)
-          .input("status", mssql.VarChar(50), status)
-          .input("due_date", mssql.Date, dueDate)
-          .input("remarks", mssql.Text, remarksVal)
-          .input("paid_for_by", mssql.VarChar(50), paidForByVal)
-          .input("currency", mssql.VarChar(10), currencyVal)
-          .input("amount", mssql.Decimal(18, 2), amountVal)
-          .input("supplier_name", mssql.VarChar(255), supplierNameVal)
-          .input("supplier_amount", mssql.Decimal(18, 2), supplierAmountVal)
-          .input("premier_amount", mssql.Decimal(18, 2), premierAmountVal)
-          .input(
-            "customization_customer_name",
-            mssql.VarChar(255),
-            customerNameVal
-          )
-          .input("customization_comments", mssql.Text, customerCommentsVal)
-          .input("sample_quantity", mssql.Int, sampleQuantityVal)
-          .input("certification_type", mssql.VarChar(50), certificationType)
-          .query(`
-                INSERT INTO dbo.certifications
-                  (project_name, project_details, material, testing_laboratory,
-                   testing_approved_by, status, due_date, remarks,
-                   paid_for_by, currency, amount, supplier_name,
-                   supplier_amount, premier_amount,
-                   customization_customer_name, customization_comments,
-                   sample_quantity, certification_type)
-                VALUES
-                  (@projectName,@projectDetails,@material,@testing_laboratory,
-                   @testing_approved_by,@status,@due_date,@remarks,
-                   @paid_for_by,@currency,@amount,@supplier_name,
-                   @supplier_amount,@premier_amount,
-                   @customization_customer_name,@customization_comments,
-                   @sample_quantity,@certification_type);
-              `);
-      } catch (e) {
-        console.error("⚠️ MSSQL INSERT certifications failed:", e);
-      }
-    }
-
     // Helper to bulk-insert into auxiliary tables
     const bulkInsert = async (table, column, arr) => {
       if (!Array.isArray(arr)) return;
@@ -1056,20 +870,6 @@ app.post("/api/certifications", async (req, res) => {
           `INSERT INTO ${table} (certification_id, ${column}) VALUES (?, ?)`,
           [certId, value]
         );
-        // MSSQL fallback
-        if (mssqlPool) {
-          try {
-            await mssqlPool
-              .request()
-              .input("id", mssql.Int, certId)
-              .input("val", mssql.VarChar(255), value)
-              .query(`
-                INSERT INTO dbo.${table}
-                  (certification_id, ${column})
-                VALUES (@id, @val);
-              `);
-          } catch (_) {}
-        }
       }
     };
 
@@ -1099,22 +899,6 @@ app.post("/api/certifications", async (req, res) => {
              VALUES (?, ?, ?, ?)`,
           [certId, h.previousDate, h.newDate, h.changedAt]
         );
-        if (mssqlPool) {
-          try {
-            await mssqlPool
-              .request()
-              .input("id", mssql.Int, certId)
-              .input("prev", mssql.Date, h.previousDate)
-              .input("newd", mssql.Date, h.newDate)
-              .input("chg", mssql.DateTime, h.changedAt)
-              .query(`
-                INSERT INTO dbo.due_date_history
-                  (certification_id, previous_date, new_date, changed_at)
-                VALUES
-                  (@id, @prev, @newd, @chg);
-              `);
-          } catch (_) {}
-        }
       }
     }
 
@@ -1127,23 +911,6 @@ app.post("/api/certifications", async (req, res) => {
              VALUES (?, ?, ?, ?, ?, 0)`,
           [file.id, certId, file.name, file.data, file.type]
         );
-        if (mssqlPool) {
-          try {
-            await mssqlPool
-              .request()
-              .input("id", mssql.Char(36), file.id)
-              .input("cert", mssql.Int, certId)
-              .input("nm", mssql.VarChar(255), file.name)
-              .input("dt", mssql.Text, file.data)
-              .input("tp", mssql.VarChar(100), file.type)
-              .query(`
-                INSERT INTO dbo.uploads
-                  (id, certification_id, name, data, type, is_invoice)
-                VALUES
-                  (@id, @cert, @nm, @dt, @tp, 0);
-              `);
-          } catch (_) {}
-        }
       }
     }
 
@@ -1161,30 +928,13 @@ app.post("/api/certifications", async (req, res) => {
           invoiceAttachment.type,
         ]
       );
-      if (mssqlPool) {
-        try {
-          await mssqlPool
-            .request()
-            .input("id", mssql.Char(36), invoiceAttachment.id)
-            .input("cert", mssql.Int, certId)
-            .input("nm", mssql.VarChar(255), invoiceAttachment.name)
-            .input("dt", mssql.Text, invoiceAttachment.data)
-            .input("tp", mssql.VarChar(100), invoiceAttachment.type)
-            .query(`
-              INSERT INTO dbo.uploads
-                (id, certification_id, name, data, type, is_invoice)
-              VALUES
-                (@id, @cert, @nm, @dt, @tp, 1);
-            `);
-        } catch (_) {}
-      }
     }
 
     // Commit transaction
     await conn.commit();
 
     // Send email to Technical Head (Baskara)
-    const newReqHtml = `
+    const html = `
   <div style="font-family:Arial, sans-serif; color:#333; line-height:1.4;">
     <!-- Header Banner -->
     <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#0078D4; padding:20px 0;">
@@ -1251,7 +1001,7 @@ app.post("/api/certifications", async (req, res) => {
     await sendEmail(
       "aarnav.singh@premierenergies.com",
       `New Certification Request #${certId}`,
-      newReqHtml
+      html
     );
 
     return res.status(201).json({ id: String(certId), serialNumber: certId });
@@ -1320,56 +1070,6 @@ app.put("/api/certifications/:id", async (req, res) => {
       ]
     );
 
-    // MSSQL fallback for main UPDATE
-    if (mssqlPool) {
-      try {
-        const reqMs = mssqlPool.request()
-          .input("projectName", mssql.VarChar(255), b.projectName)
-          .input("projectDetails", mssql.Text, b.projectDetails)
-          .input("material", mssql.VarChar(255), b.material)
-          .input("testing_laboratory", mssql.VarChar(255), b.testingLaboratory)
-          .input("testing_approved_by", mssql.VarChar(255), b.testingApprovedBy ?? null)
-          .input("status", mssql.VarChar(50), b.status)
-          .input("due_date", mssql.Date, b.dueDate)
-          .input("remarks", mssql.Text, b.remarks ?? null)
-          .input("paid_for_by", mssql.VarChar(50), b.paymentInfo?.paidForBy ?? null)
-          .input("currency", mssql.VarChar(10), b.paymentInfo?.currency ?? null)
-          .input("amount", mssql.Decimal(18,2), b.paymentInfo?.amount ?? null)
-          .input("supplier_name", mssql.VarChar(255), b.paymentInfo?.supplierName ?? null)
-          .input("supplier_amount", mssql.Decimal(18,2), b.paymentInfo?.supplierAmount ?? null)
-          .input("premier_amount", mssql.Decimal(18,2), b.paymentInfo?.premierAmount ?? null)
-          .input("customization_customer_name", mssql.VarChar(255), b.customizationInfo?.customerName ?? null)
-          .input("customization_comments", mssql.Text, b.customizationInfo?.comments ?? null)
-          .input("sample_quantity", mssql.Int, b.sampleQuantity ?? null)
-          .input("certification_type", mssql.VarChar(50), b.certificationType)
-          .input("id", mssql.Int, certId);
-        await reqMs.query(`
-          UPDATE dbo.certifications SET
-            project_name                = @projectName,
-            project_details             = @projectDetails,
-            material                    = @material,
-            testing_laboratory          = @testing_laboratory,
-            testing_approved_by         = @testing_approved_by,
-            status                      = @status,
-            due_date                    = @due_date,
-            remarks                     = @remarks,
-            paid_for_by                 = @paid_for_by,
-            currency                    = @currency,
-            amount                      = @amount,
-            supplier_name               = @supplier_name,
-            supplier_amount             = @supplier_amount,
-            premier_amount              = @premier_amount,
-            customization_customer_name = @customization_customer_name,
-            customization_comments      = @customization_comments,
-            sample_quantity             = @sample_quantity,
-            certification_type          = @certification_type
-          WHERE id = @id;
-        `);
-      } catch (e) {
-        console.error("⚠️ MSSQL UPDATE certifications failed:", e);
-      }
-    }
-
     // 2) Clear and re-insert all to-many fields
     for (let tbl of [
       "certification_product_types",
@@ -1379,48 +1079,27 @@ app.put("/api/certifications/:id", async (req, res) => {
       await conn.execute(`DELETE FROM ${tbl} WHERE certification_id = ?`, [
         certId,
       ]);
-      if (mssqlPool) {
-        try {
-          await mssqlPool
-            .request()
-            .input("id", mssql.Int, certId)
-            .query(`DELETE FROM dbo.${tbl} WHERE certification_id = @id;`);
-        } catch (_) {}
-      }
     }
-    const bulkInsert2 = async (table, column, arr) => {
+    const bulkInsert = async (table, column, arr) => {
       if (!Array.isArray(arr)) return;
       for (let v of arr) {
         await conn.execute(
           `INSERT INTO ${table} (certification_id, ${column}) VALUES (?, ?)`,
           [certId, v]
         );
-        if (mssqlPool) {
-          try {
-            await mssqlPool
-              .request()
-              .input("id", mssql.Int, certId)
-              .input("val", mssql.VarChar(255), v)
-              .query(`
-                INSERT INTO dbo.${table}
-                  (certification_id, ${column})
-                VALUES (@id, @val);
-              `);
-          } catch (_) {}
-        }
       }
     };
-    await bulkInsert2(
+    await bulkInsert(
       "certification_product_types",
       "product_type",
       b.productType
     );
-    await bulkInsert2(
+    await bulkInsert(
       "certification_material_categories",
       "material_category",
       b.materialCategories
     );
-    await bulkInsert2(
+    await bulkInsert(
       "certification_production_lines",
       "production_line",
       b.productionLine
@@ -1429,6 +1108,7 @@ app.put("/api/certifications/:id", async (req, res) => {
     // 3) Insert any new due-date history entries
     if (Array.isArray(b.dueDateHistory)) {
       for (let h of b.dueDateHistory) {
+        // MySQL DATETIME must be 'YYYY-MM-DD HH:MM:SS'
         const formattedChangedAt = new Date(h.changedAt)
           .toISOString()
           .slice(0, 19)
@@ -1439,22 +1119,6 @@ app.put("/api/certifications/:id", async (req, res) => {
            VALUES (?, ?, ?, ?)`,
           [certId, h.previousDate, h.newDate, formattedChangedAt]
         );
-        if (mssqlPool) {
-          try {
-            await mssqlPool
-              .request()
-              .input("id", mssql.Int, certId)
-              .input("prev", mssql.Date, h.previousDate)
-              .input("newd", mssql.Date, h.newDate)
-              .input("chg", mssql.DateTime, formattedChangedAt)
-              .query(`
-                INSERT INTO dbo.due_date_history
-                  (certification_id, previous_date, new_date, changed_at)
-                VALUES
-                  (@id, @prev, @newd, @chg);
-              `);
-          } catch (_) {}
-        }
       }
     }
 
@@ -1463,14 +1127,6 @@ app.put("/api/certifications/:id", async (req, res) => {
       `DELETE FROM uploads WHERE certification_id = ? AND is_invoice = 0`,
       [certId]
     );
-    if (mssqlPool) {
-      try {
-        await mssqlPool
-          .request()
-          .input("id", mssql.Int, certId)
-          .query("DELETE FROM dbo.uploads WHERE certification_id = @id AND is_invoice = 0;");
-      } catch (_) {}
-    }
     if (Array.isArray(b.uploads)) {
       for (let u of b.uploads) {
         await conn.execute(
@@ -1479,23 +1135,6 @@ app.put("/api/certifications/:id", async (req, res) => {
            VALUES (?, ?, ?, ?, ?, 0)`,
           [u.id, certId, u.name, u.data, u.type]
         );
-        if (mssqlPool) {
-          try {
-            await mssqlPool
-              .request()
-              .input("id", mssql.Char(36), u.id)
-              .input("cert", mssql.Int, certId)
-              .input("nm", mssql.VarChar(255), u.name)
-              .input("dt", mssql.Text, u.data)
-              .input("tp", mssql.VarChar(100), u.type)
-              .query(`
-                INSERT INTO dbo.uploads
-                  (id, certification_id, name, data, type, is_invoice)
-                VALUES
-                  (@id, @cert, @nm, @dt, @tp, 0);
-              `);
-          } catch (_) {}
-        }
       }
     }
 
@@ -1504,14 +1143,6 @@ app.put("/api/certifications/:id", async (req, res) => {
       `DELETE FROM uploads WHERE certification_id = ? AND is_invoice = 1`,
       [certId]
     );
-    if (mssqlPool) {
-      try {
-        await mssqlPool
-          .request()
-          .input("id", mssql.Int, certId)
-          .query("DELETE FROM dbo.uploads WHERE certification_id = @id AND is_invoice = 1;");
-      } catch (_) {}
-    }
     if (b.paymentInfo?.invoiceAttachment) {
       const inv = b.paymentInfo.invoiceAttachment;
       await conn.execute(
@@ -1520,23 +1151,6 @@ app.put("/api/certifications/:id", async (req, res) => {
          VALUES (?, ?, ?, ?, ?, 1)`,
         [inv.id, certId, inv.name, inv.data, inv.type]
       );
-      if (mssqlPool) {
-        try {
-          await mssqlPool
-            .request()
-            .input("id", mssql.Char(36), inv.id)
-            .input("cert", mssql.Int, certId)
-            .input("nm", mssql.VarChar(255), inv.name)
-            .input("dt", mssql.Text, inv.data)
-            .input("tp", mssql.VarChar(100), inv.type)
-            .query(`
-              INSERT INTO dbo.uploads
-                (id, certification_id, name, data, type, is_invoice)
-              VALUES
-                (@id, @cert, @nm, @dt, @tp, 1);
-            `);
-        } catch (_) {}
-      }
     }
 
     // Commit transaction
@@ -1558,14 +1172,6 @@ app.delete("/api/certifications/:id", async (req, res) => {
   try {
     const certId = Number(req.params.id);
     await pool.execute(`DELETE FROM certifications WHERE id=?`, [certId]);
-    if (mssqlPool) {
-      try {
-        await mssqlPool
-          .request()
-          .input("id", mssql.Int, certId)
-          .query("DELETE FROM dbo.certifications WHERE id = @id;");
-      } catch (_) {}
-    }
     res.json({ message: "Certification deleted" });
   } catch (err) {
     console.error(err);

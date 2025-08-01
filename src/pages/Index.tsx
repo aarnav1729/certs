@@ -1,5 +1,5 @@
-// root/src/pages/Index.tsx
 import React, { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Plus, Loader2 } from "lucide-react";
@@ -12,8 +12,11 @@ import {
   updateCertification,
 } from "@/lib/storage";
 import { toast } from "sonner";
+import { useAuth } from "@/contexts/AuthContext";
 
 const Index: React.FC = () => {
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
   const [certifications, setCertifications] = useState<Certification[]>([]);
   const [searchTerm, setSearchTerm] = useState<string>("");
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -38,7 +41,7 @@ const Index: React.FC = () => {
       // 2. In progress and not started in the middle
       // 3. Completed items at the bottom
       data.sort((a, b) => {
-        const now = new Date().getTime();
+        const now = Date.now();
         const aDue = new Date(a.dueDate).getTime();
         const bDue = new Date(b.dueDate).getTime();
         const aOverdue = aDue < now && a.status !== "Completed";
@@ -98,7 +101,16 @@ const Index: React.FC = () => {
     }
   };
 
-  // filter based on searchTerm
+  const handleLogout = async () => {
+    try {
+      await logout();
+      navigate("/login");
+    } catch {
+      toast.error("Logout failed");
+    }
+  };
+
+  // filter based on global searchTerm
   const filtered = certifications.filter((cert) => {
     const s = searchTerm.toLowerCase();
     return Object.values(cert).some((val) =>
@@ -107,45 +119,106 @@ const Index: React.FC = () => {
   });
 
   return (
-    <div className="container py-8 max-w-[1400px]">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-3xl font-bold text-gray-900">Certification Board</h1>
-        <div className="flex items-center gap-2">
+    <div className="min-h-screen flex flex-col">
+      <header className="container mx-auto px-4 py-3 flex flex-col sm:flex-row items-center justify-between">
+        {/* Left logo */}
+        <div className="mb-4 sm:mb-0">
+          <img
+            src="/logo.png"
+            alt="Premier Energies"
+            className="h-28 w-auto p-0 m-0"
+          />
+        </div>
+
+        {/* Controls */}
+        <div className="flex flex-wrap items-center gap-2">
           <Input
             type="text"
             placeholder="Search..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-[250px]"
+            className="w-40 sm:w-48 md:w-64 bg-white-100 border-gray-300 focus:border-brand-500 focus:ring-brand-500"
           />
-          <Button onClick={handleCreateNew} className="bg-brand-500 hover:bg-brand-600">
-            <Plus className="h-4 w-4 mr-2" />
-            Create New
+          {user &&
+            (user.role === "Requestor" || user.role === "Admin") && (
+              <Button
+              variant="outline"
+                onClick={handleCreateNew}
+                className="bg-brand-500 text-white hover:bg-white hover:text-brand-500"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Create New
+              </Button>
+            )}
+          <Button variant="outline" className="bg-red-500 text-white hover:bg-white hover:text-red-500" onClick={handleLogout}>
+            Logout
           </Button>
         </div>
-      </div>
 
-      {loading ? (
-        <div className="flex items-center justify-center py-20">
-          <Loader2 className="animate-spin h-6 w-6 mr-2 text-gray-500" />
-          <span className="text-gray-500">Loading certifications…</span>
+        {/* Right logo */}
+        <div className="mb-4 sm:mb-0">
+          <img
+            src="/l.png"
+            alt="Partner Logo"
+            className="h-20 w-auto p-0 m-0"
+          />
         </div>
-      ) : (
-        <CertificationTable
-          certifications={filtered}
-          onEdit={handleEdit}
-          onView={handleView}
-          onDataChange={loadCertifications}
-        />
-      )}
+      </header>
 
-      <CertificationForm
-        isOpen={isFormOpen}
-        onClose={() => setIsFormOpen(false)}
-        onSubmit={handleSubmit}
-        initialData={selectedCertification}
-        mode={formMode}
-      />
+      <main className="container mx-auto px-4 flex-1">
+        {loading ? (
+          <div className="flex items-center justify-center py-20">
+            <Loader2 className="animate-spin h-6 w-6 mr-2 text-gray-500" />
+            <span className="text-gray-500">Loading certifications…</span>
+          </div>
+        ) : (
+          <>
+            {/* Legend */}
+            <div className="my-4">
+              <h2 className="font-semibold mb-2">Legend</h2>
+              <div className="flex flex-wrap gap-4 text-sm">
+                <div className="flex items-center">
+                  <span className="w-4 h-4 bg-red-100 border border-red-300 mr-2" />
+                  Overdue
+                </div>
+                <div className="flex items-center">
+                  <span className="w-4 h-4 bg-sky-100 border border-sky-300 mr-2" />
+                  Not Started Yet
+                </div>
+                <div className="flex items-center">
+                  <span className="w-4 h-4 bg-yellow-100 border border-yellow-300 mr-2" />
+                  In Progress
+                </div>
+                <div className="flex items-center">
+                  <span className="w-4 h-4 bg-green-100 border border-green-300 mr-2" />
+                  Completed
+                </div>
+              </div>
+            </div>
+
+            <CertificationTable
+              certifications={filtered}
+              onEdit={handleEdit}
+              onView={handleView}
+              onDataChange={loadCertifications}
+            />
+          </>
+        )}
+
+        <CertificationForm
+          isOpen={isFormOpen}
+          onClose={() => setIsFormOpen(false)}
+          onSubmit={handleSubmit}
+          initialData={selectedCertification}
+          mode={formMode}
+        />
+      </main>
+
+      <footer className="bg-gray-100 py-4">
+        <p className="text-center text-sm text-gray-500">
+          © {new Date().getFullYear()} Premier Energies Limited Certify Pro
+        </p>
+      </footer>
     </div>
   );
 };

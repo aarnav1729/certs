@@ -261,8 +261,8 @@ export function CertificationForm({
         dueDate !== initialData.dueDate.split("T")[0]
       ) {
         updatedDueDateHistory.push({
-          previousDate: initialData.dueDate,
-          newDate: new Date(dueDate).toISOString(),
+          previousDate: initialData.dueDate.split("T")[0],
+          newDate: dueDate, // again, just YYYY-MM-DD
           changedAt: new Date().toISOString(),
         });
       }
@@ -299,7 +299,7 @@ export function CertificationForm({
         testingLaboratory: finalTestingLaboratory,
         testingApprovedBy,
         status,
-        dueDate: new Date(dueDate).toISOString(),
+        dueDate: dueDate,
         dueDateHistory: updatedDueDateHistory,
         remarks,
         uploads,
@@ -965,72 +965,72 @@ export function CertificationForm({
                     <SelectItem value="Premier">Premier</SelectItem>
                     <SelectItem value="Supplier">Supplier</SelectItem>
                     <SelectItem value="Split">Split Payment</SelectItem>
-                    <SelectItem value="Not Discussed Yet">Not Discussed Yet</SelectItem>
+                    <SelectItem value="Not Discussed Yet">
+                      Not Discussed Yet
+                    </SelectItem>
                   </SelectContent>
                 </Select>
                 {paidForBy !== "Not Discussed Yet" && (
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="currency">Currency *</Label>
-                    <Select
-                      value={currency}
-                      onValueChange={(value: CurrencyType) =>
-                        setCurrency(value)
-                      }
-                      disabled={isViewMode}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select currency" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="INR">INR (₹)</SelectItem>
-                        <SelectItem value="USD">USD ($)</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {paidForBy === "Premier" && (
+                  <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label htmlFor="amount">Amount (Optional)</Label>
-                      <div className="flex items-center gap-2">
-                        <DollarSign className="h-4 w-4 text-gray-500" />
+                      <Label htmlFor="currency">Currency *</Label>
+                      <Select
+                        value={currency}
+                        onValueChange={(value: CurrencyType) =>
+                          setCurrency(value)
+                        }
+                        disabled={isViewMode}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select currency" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="INR">INR (₹)</SelectItem>
+                          <SelectItem value="USD">USD ($)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {paidForBy === "Premier" && (
+                      <div className="space-y-2">
+                        <Label htmlFor="amount">Amount (Optional)</Label>
+                        <div className="flex items-center gap-2">
+                          
+                          <Input
+                            id="amount"
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={amount || ""}
+                            onChange={(e) =>
+                              setAmount(
+                                e.target.value
+                                  ? parseFloat(e.target.value)
+                                  : undefined
+                              )
+                            }
+                            disabled={isViewMode}
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    {paidForBy === "Supplier" && (
+                      <div className="space-y-2">
+                        <Label htmlFor="supplierName">Supplier Name *</Label>
                         <Input
-                          id="amount"
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          value={amount || ""}
-                          onChange={(e) =>
-                            setAmount(
-                              e.target.value
-                                ? parseFloat(e.target.value)
-                                : undefined
-                            )
-                          }
+                          id="supplierName"
+                          value={supplierName}
+                          onChange={(e) => setSupplierName(e.target.value)}
                           disabled={isViewMode}
+                          required={
+                            paidForBy === "Supplier" || paidForBy === "Split"
+                          }
                         />
                       </div>
-                    </div>
-                  )}
-
-                  {paidForBy === "Supplier" && (
-                    <div className="space-y-2">
-                      <Label htmlFor="supplierName">Supplier Name *</Label>
-                      <Input
-                        id="supplierName"
-                        value={supplierName}
-                        onChange={(e) => setSupplierName(e.target.value)}
-                        disabled={isViewMode}
-                        required={
-                          paidForBy === "Supplier" || paidForBy === "Split"
-                        }
-                      />
-                    </div>
-                  )}
-                </div>
+                    )}
+                  </div>
                 )}
-                
-                
 
                 {paidForBy === "Split" && (
                   <div className="grid grid-cols-2 gap-4">
@@ -1048,7 +1048,7 @@ export function CertificationForm({
                     <div className="space-y-2">
                       <Label htmlFor="supplierAmount">Supplier Amount *</Label>
                       <div className="flex items-center gap-2">
-                        <DollarSign className="h-4 w-4 text-gray-500" />
+                        
                         <Input
                           id="supplierAmount"
                           type="number"
@@ -1071,7 +1071,7 @@ export function CertificationForm({
                     <div className="space-y-2">
                       <Label htmlFor="premierAmount">Premier Amount *</Label>
                       <div className="flex items-center gap-2">
-                        <DollarSign className="h-4 w-4 text-gray-500" />
+                        
                         <Input
                           id="premierAmount"
                           type="number"

@@ -1,4 +1,5 @@
 // root/src/lib/storage.ts
+
 import {
   Certification,
   TestingLaboratory,
@@ -9,8 +10,8 @@ import {
   MATERIAL_CATEGORIES
 } from "./types";
 
-const API_BASE = "https://certs-1d5v.onrender.com";
-//const API_BASE = "http://localhost:7777";
+//const API_BASE = "https://certs-1d5v.onrender.com";
+const API_BASE = "http://localhost:7777";
 
 async function handleResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
@@ -48,11 +49,12 @@ export async function addCertification(
 }
 
 /**
- * Update an existing certification by its Mongo ID.
+ * Update an existing certification by its ID.
+ * You can pass *any* fields that should be updated.
  */
 export async function updateCertification(
   id: string,
-  data: Omit<Certification, "id" | "serialNumber" | "createdAt" | "lastUpdatedOn">
+  data: Partial<Omit<Certification, "id" | "serialNumber" | "createdAt" | "lastUpdatedOn">>
 ): Promise<Certification> {
   const res = await fetch(`${API_BASE}/api/certifications/${id}`, {
     method: "PUT",
@@ -64,7 +66,7 @@ export async function updateCertification(
 }
 
 /**
- * Delete a certification by its Mongo ID.
+ * Delete a certification by its ID.
  */
 export async function deleteCertification(id: string): Promise<void> {
   const res = await fetch(`${API_BASE}/api/certifications/${id}`, {
@@ -77,9 +79,36 @@ export async function deleteCertification(id: string): Promise<void> {
   }
 }
 
+/**
+ * Update the approval status and comment for a given stage.
+ * Uses the dedicated POST /approve endpoint to avoid partial-PUT conflicts.
+ *
+ * @param id      Certification ID
+ * @param stage   One of "technicalHead" | "plantHead" | "director" | "coo"
+ * @param action  "Approved" or "Rejected"
+ * @param comment Approval/rejection comment
+ */
+export async function updateApproval(
+  id: string,
+  stage: "technicalHead" | "plantHead" | "director" | "coo",
+  action: "Approved" | "Rejected",
+  comment: string
+): Promise<Certification> {
+  // call the dedicated approval route
+  const res = await fetch(
+    `${API_BASE}/api/certifications/${id}/approve`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ action, comment }),
+    }
+  );
+  return handleResponse<Certification>(res);
+}
+
 // --- Local-storage–based helpers for form choices & uploads ---
 
-const CUSTOM_PRODUCT_TYPES_KEY = 'cert-board-custom-product-types';
+const CUSTOM_PRODUCT_TYPES_KEY = "cert-board-custom-product-types";
 export function getCustomProductTypes(): string[] {
   const stored = localStorage.getItem(CUSTOM_PRODUCT_TYPES_KEY);
   if (!stored) return [];
@@ -94,7 +123,10 @@ export function saveCustomProductType(productType: string): void {
     const list = getCustomProductTypes();
     if (!list.includes(productType)) {
       list.push(productType);
-      localStorage.setItem(CUSTOM_PRODUCT_TYPES_KEY, JSON.stringify(list));
+      localStorage.setItem(
+        CUSTOM_PRODUCT_TYPES_KEY,
+        JSON.stringify(list)
+      );
     }
   } catch {
     /* ignore */
@@ -104,7 +136,7 @@ export function getAllProductTypes(): string[] {
   return [...PRODUCT_TYPES, ...getCustomProductTypes()];
 }
 
-const CUSTOM_TESTING_LABS_KEY = 'cert-board-custom-testing-laboratories';
+const CUSTOM_TESTING_LABS_KEY = "cert-board-custom-testing-laboratories";
 export function getCustomTestingLaboratories(): TestingLaboratory[] {
   const stored = localStorage.getItem(CUSTOM_TESTING_LABS_KEY);
   if (!stored) return [];
@@ -114,12 +146,17 @@ export function getCustomTestingLaboratories(): TestingLaboratory[] {
     return [];
   }
 }
-export function saveCustomTestingLaboratory(lab: TestingLaboratory): void {
+export function saveCustomTestingLaboratory(
+  lab: TestingLaboratory
+): void {
   try {
     const list = getCustomTestingLaboratories();
     if (!list.includes(lab)) {
       list.push(lab);
-      localStorage.setItem(CUSTOM_TESTING_LABS_KEY, JSON.stringify(list));
+      localStorage.setItem(
+        CUSTOM_TESTING_LABS_KEY,
+        JSON.stringify(list)
+      );
     }
   } catch {
     /* ignore */
@@ -129,7 +166,8 @@ export function getAllTestingLaboratories(): TestingLaboratory[] {
   return [...TESTING_LABORATORIES, ...getCustomTestingLaboratories()];
 }
 
-const CUSTOM_MATERIAL_CATEGORIES_KEY = 'cert-board-custom-material-categories';
+const CUSTOM_MATERIAL_CATEGORIES_KEY =
+  "cert-board-custom-material-categories";
 export function getCustomMaterialCategories(): MaterialCategory[] {
   const stored = localStorage.getItem(CUSTOM_MATERIAL_CATEGORIES_KEY);
   if (!stored) return [];
@@ -139,12 +177,17 @@ export function getCustomMaterialCategories(): MaterialCategory[] {
     return [];
   }
 }
-export function saveCustomMaterialCategory(category: MaterialCategory): void {
+export function saveCustomMaterialCategory(
+  category: MaterialCategory
+): void {
   try {
     const list = getCustomMaterialCategories();
     if (!list.includes(category)) {
       list.push(category);
-      localStorage.setItem(CUSTOM_MATERIAL_CATEGORIES_KEY, JSON.stringify(list));
+      localStorage.setItem(
+        CUSTOM_MATERIAL_CATEGORIES_KEY,
+        JSON.stringify(list)
+      );
     }
   } catch {
     /* ignore */
