@@ -12,7 +12,7 @@ export default defineConfig(({ mode }) => ({
     proxy: {
       // Proxy all /api requests to your backend on port 7777
       "/api": {
-        target: "http://localhost:7777",
+        target: "https://certifypro.premierenergies.com:12443",
         changeOrigin: true,
         secure: false,
         rewrite: (path) => path,

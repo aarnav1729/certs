@@ -1,10 +1,5 @@
-import React, {
-  createContext,
-  useContext,
-  useState,
-  ReactNode,
-  useEffect,
-} from "react";
+// src/contexts/AuthContext.tsx
+import React, { createContext, useContext, useState, ReactNode, useEffect } from "react";
 
 interface User {
   username: string;
@@ -16,6 +11,8 @@ interface AuthContextType {
   user: User | null;
   login: (username: string, password: string) => Promise<void>;
   quickLogin: (username: string) => Promise<void>;
+  sendOtp: (email: string) => Promise<void>;
+  verifyOtp: (email: string, otp: string) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -24,7 +21,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
 
-  // Try to fetch current session on mount
+  // hydrate session
   useEffect(() => {
     fetch("/api/me", { credentials: "include" })
       .then((res) => (res.ok ? res.json() : Promise.reject()))
@@ -45,20 +42,38 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const quickLogin = (username: string) => {
-    // password === username for our setup
     return login(username, username);
   };
 
-  const logout = async () => {
-    await fetch("/api/logout", {
+  const sendOtp = async (email: string) => {
+    const res = await fetch("/api/send-otp", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || "Failed to send OTP");
+  };
+
+  const verifyOtp = async (email: string, otp: string) => {
+    const res = await fetch("/api/verify-otp", {
       method: "POST",
       credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, otp }),
     });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || "Invalid OTP");
+    setUser(data);
+  };
+
+  const logout = async () => {
+    await fetch("/api/logout", { method: "POST", credentials: "include" });
     setUser(null);
   };
 
   return (
-    <AuthContext.Provider value={{ user, login, quickLogin, logout }}>
+    <AuthContext.Provider value={{ user, login, quickLogin, sendOtp, verifyOtp, logout }}>
       {children}
     </AuthContext.Provider>
   );

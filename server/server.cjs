@@ -1,5 +1,3 @@
-// server/server.cjs
-
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
@@ -314,22 +312,48 @@ const app = express();
 
 // —– Hard-coded users —–
 const users = [
-  { username: "praful", password: "praful", role: "Requestor", name: "Praful" },
+  {
+    username: "praful",
+    password: "praful",
+    role: "Requestor",
+    name: "Praful Bharadwaj",
+    email: "praful.bharadwaj@premierenergies.com",
+  },
   {
     username: "baskara",
     password: "baskara",
     role: "TechnicalHead",
-    name: "Baskara",
+    name: "Baskara Pandian T",
+    email: "baskara.pandian@premierenergies.com",
   },
-  { username: "cmk", password: "cmk", role: "PlantHead", name: "CMK" },
+  {
+    username: "cmk",
+    password: "cmk",
+    role: "PlantHead",
+    name: "Chandra Mauli Kumar",
+    email: "chandra.kumar@premierenergies.com",
+  },
   {
     username: "jasveen",
     password: "jasveen",
     role: "Director",
-    name: "Jaasveen",
+    name: "Jasveen Saluja",
+    email: "jasveen@premierenergies.com",
   },
-  { username: "vishnu", password: "vishnu", role: "COO", name: "Vishnu" },
-  { username: "aarnav", password: "aarnav", role: "Admin", name: "Aarnav" },
+  {
+    username: "vishnu",
+    password: "vishnu",
+    role: "COO",
+    name: "Vishnu Hazari",
+    email: "vishnu.hazari@premierenergies.com",
+  },
+  {
+    username: "aarnav",
+    password: "aarnav",
+    role: "Admin",
+    name: "Aarnav Singh",
+    email: "aarnav.singh@premierenergies.com",
+  },
 ];
 
 // —– MIDDLEWARES —–
@@ -337,6 +361,7 @@ app.use(helmet());
 app.use(cors({ origin: "http://localhost:8080", credentials: true }));
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
+
 app.use(morgan("combined"));
 
 app.use(
@@ -348,6 +373,79 @@ app.use(
   })
 );
 
+// ── In-Memory OTP Store & Routes ─────────────────────────────────────────
+const otps = {}; // { [email]: { code, expiresAt, user } }
+
+// Send OTP
+// Send OTP
+app.post("/api/send-otp", async (req, res) => {
+  const { email } = req.body;
+
+  // 0) restrict to allowed users
+  const user = users.find((u) => u.email === email);
+  if (!user) {
+    return res.status(403).json({
+      message:
+        "You are not currently in the verified users list—please contact IT to gain access.",
+    });
+  }
+
+  try {
+    // 1) generate OTP & expiry
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = Date.now() + 5 * 60 * 1000;
+    otps[email] = { code, expiresAt, user };
+
+    // 2) build branded email
+    const subject = "Your Premier Energies One-Time Password";
+    const html = `
+      <div style="font-family:Arial, sans-serif; color:#333; line-height:1.5; max-width:600px; margin:auto;">
+        <h2 style="color:#0078D4; margin-bottom:0.5em;">Welcome to CertifyPro</h2>
+        <p>Hello <strong>${user.name}</strong>,</p>
+        <p>Your one-time password (OTP) is:</p>
+        <p style="font-size:24px; font-weight:bold; color:#0078D4; margin:0.5em 0;">${code}</p>
+        <p>This code <strong>expires in 5 minutes</strong>.</p>
+        <hr style="border:none; border-top:1px solid #eee; margin:2em 0;">
+        <p style="font-size:12px; color:#777;">
+          If you didn’t request this, simply ignore this email.<br>
+          Need help? Contact <a href="mailto:support@premierenergies.com">support</a>.
+        </p>
+        <p style="margin-top:1.5em;">Regards,<br/><strong>Team Premier Energies</strong></p>
+      </div>`;
+
+    // 3) send
+    await sendEmail(email, subject, html);
+
+    // 4) respond
+    return res.json({ message: "OTP sent successfully" });
+  } catch (err) {
+    console.error("send-otp error", err);
+    return res.status(500).json({ message: "Server error" });
+  }
+});
+
+// Verify OTP & establish session
+app.post("/api/verify-otp", (req, res) => {
+  const { email, otp } = req.body;
+  const entry = otps[email];
+  if (!entry) return res.status(400).json({ message: "No OTP requested" });
+  if (Date.now() > entry.expiresAt) {
+    delete otps[email];
+    return res.status(400).json({ message: "OTP expired" });
+  }
+  if (otp !== entry.code)
+    return res.status(400).json({ message: "Invalid OTP" });
+
+  req.session.user = {
+    username: entry.user.username,
+    role: entry.user.role,
+    name: entry.user.name,
+  };
+  delete otps[email];
+  res.json(req.session.user);
+});
+// ── End OTP block ───────────────────────────────────────────────────────
+
 // —– AUTH GUARD —–
 function requireAuth(req, res, next) {
   if (!req.session.user)
@@ -355,14 +453,13 @@ function requireAuth(req, res, next) {
   next();
 }
 
-// —– LOGIN / LOGOUT —–
+// —– LOGIN / LOGOUT (legacy, still works) —–
 app.post("/api/login", async (req, res) => {
   const { username, password } = req.body;
   const user = users.find(
     (u) => u.username === username && u.password === password
   );
   if (!user) return res.status(401).json({ message: "Invalid credentials" });
-
   req.session.user = {
     username: user.username,
     role: user.role,
@@ -370,12 +467,16 @@ app.post("/api/login", async (req, res) => {
   };
   res.json(req.session.user);
 });
-
 app.post("/api/logout", (req, res) => {
   req.session.destroy((err) => {
     if (err) console.error(err);
     res.json({ message: "Logged out" });
   });
+});
+app.get("/api/me", (req, res) => {
+  if (!req.session.user)
+    return res.status(401).json({ message: "Unauthorized" });
+  res.json(req.session.user);
 });
 
 // Provide session info to the client so AuthContext can hydrate.
@@ -1617,7 +1718,6 @@ app.use((err, _, res, __) => {
   console.error(err.stack);
   res.status(500).json({ message: "Server Error" });
 });
-
 
 // --- START HTTPS SERVER ---
 const httpsOptions = {
