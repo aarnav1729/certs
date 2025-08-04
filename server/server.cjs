@@ -9,6 +9,10 @@ const session = require("express-session");
 const mysql = require("mysql2/promise");
 const mssql = require("mssql");
 
+const fs = require("fs");
+const path = require("path");
+const https = require("https");
+
 const { Client } = require("@microsoft/microsoft-graph-client");
 const { ClientSecretCredential } = require("@azure/identity");
 require("isomorphic-fetch");
@@ -868,7 +872,7 @@ app.get("/api/certifications/:id", async (req, res) => {
     );
     const [inv] = await pool.query(
       "SELECT id, name, data, type FROM uploads WHERE certification_id=? AND is_invoice=1",
-      [id]  
+      [id]
     );
 
     res.json({
@@ -1062,8 +1066,7 @@ app.post("/api/certifications", async (req, res) => {
             await mssqlPool
               .request()
               .input("id", mssql.Int, certId)
-              .input("val", mssql.VarChar(255), value)
-              .query(`
+              .input("val", mssql.VarChar(255), value).query(`
                 INSERT INTO dbo.${table}
                   (certification_id, ${column})
                 VALUES (@id, @val);
@@ -1106,8 +1109,7 @@ app.post("/api/certifications", async (req, res) => {
               .input("id", mssql.Int, certId)
               .input("prev", mssql.Date, h.previousDate)
               .input("newd", mssql.Date, h.newDate)
-              .input("chg", mssql.DateTime, h.changedAt)
-              .query(`
+              .input("chg", mssql.DateTime, h.changedAt).query(`
                 INSERT INTO dbo.due_date_history
                   (certification_id, previous_date, new_date, changed_at)
                 VALUES
@@ -1135,8 +1137,7 @@ app.post("/api/certifications", async (req, res) => {
               .input("cert", mssql.Int, certId)
               .input("nm", mssql.VarChar(255), file.name)
               .input("dt", mssql.Text, file.data)
-              .input("tp", mssql.VarChar(100), file.type)
-              .query(`
+              .input("tp", mssql.VarChar(100), file.type).query(`
                 INSERT INTO dbo.uploads
                   (id, certification_id, name, data, type, is_invoice)
                 VALUES
@@ -1169,8 +1170,7 @@ app.post("/api/certifications", async (req, res) => {
             .input("cert", mssql.Int, certId)
             .input("nm", mssql.VarChar(255), invoiceAttachment.name)
             .input("dt", mssql.Text, invoiceAttachment.data)
-            .input("tp", mssql.VarChar(100), invoiceAttachment.type)
-            .query(`
+            .input("tp", mssql.VarChar(100), invoiceAttachment.type).query(`
               INSERT INTO dbo.uploads
                 (id, certification_id, name, data, type, is_invoice)
               VALUES
@@ -1323,23 +1323,52 @@ app.put("/api/certifications/:id", async (req, res) => {
     // MSSQL fallback for main UPDATE
     if (mssqlPool) {
       try {
-        const reqMs = mssqlPool.request()
+        const reqMs = mssqlPool
+          .request()
           .input("projectName", mssql.VarChar(255), b.projectName)
           .input("projectDetails", mssql.Text, b.projectDetails)
           .input("material", mssql.VarChar(255), b.material)
           .input("testing_laboratory", mssql.VarChar(255), b.testingLaboratory)
-          .input("testing_approved_by", mssql.VarChar(255), b.testingApprovedBy ?? null)
+          .input(
+            "testing_approved_by",
+            mssql.VarChar(255),
+            b.testingApprovedBy ?? null
+          )
           .input("status", mssql.VarChar(50), b.status)
           .input("due_date", mssql.Date, b.dueDate)
           .input("remarks", mssql.Text, b.remarks ?? null)
-          .input("paid_for_by", mssql.VarChar(50), b.paymentInfo?.paidForBy ?? null)
+          .input(
+            "paid_for_by",
+            mssql.VarChar(50),
+            b.paymentInfo?.paidForBy ?? null
+          )
           .input("currency", mssql.VarChar(10), b.paymentInfo?.currency ?? null)
-          .input("amount", mssql.Decimal(18,2), b.paymentInfo?.amount ?? null)
-          .input("supplier_name", mssql.VarChar(255), b.paymentInfo?.supplierName ?? null)
-          .input("supplier_amount", mssql.Decimal(18,2), b.paymentInfo?.supplierAmount ?? null)
-          .input("premier_amount", mssql.Decimal(18,2), b.paymentInfo?.premierAmount ?? null)
-          .input("customization_customer_name", mssql.VarChar(255), b.customizationInfo?.customerName ?? null)
-          .input("customization_comments", mssql.Text, b.customizationInfo?.comments ?? null)
+          .input("amount", mssql.Decimal(18, 2), b.paymentInfo?.amount ?? null)
+          .input(
+            "supplier_name",
+            mssql.VarChar(255),
+            b.paymentInfo?.supplierName ?? null
+          )
+          .input(
+            "supplier_amount",
+            mssql.Decimal(18, 2),
+            b.paymentInfo?.supplierAmount ?? null
+          )
+          .input(
+            "premier_amount",
+            mssql.Decimal(18, 2),
+            b.paymentInfo?.premierAmount ?? null
+          )
+          .input(
+            "customization_customer_name",
+            mssql.VarChar(255),
+            b.customizationInfo?.customerName ?? null
+          )
+          .input(
+            "customization_comments",
+            mssql.Text,
+            b.customizationInfo?.comments ?? null
+          )
           .input("sample_quantity", mssql.Int, b.sampleQuantity ?? null)
           .input("certification_type", mssql.VarChar(50), b.certificationType)
           .input("id", mssql.Int, certId);
@@ -1400,8 +1429,7 @@ app.put("/api/certifications/:id", async (req, res) => {
             await mssqlPool
               .request()
               .input("id", mssql.Int, certId)
-              .input("val", mssql.VarChar(255), v)
-              .query(`
+              .input("val", mssql.VarChar(255), v).query(`
                 INSERT INTO dbo.${table}
                   (certification_id, ${column})
                 VALUES (@id, @val);
@@ -1446,8 +1474,7 @@ app.put("/api/certifications/:id", async (req, res) => {
               .input("id", mssql.Int, certId)
               .input("prev", mssql.Date, h.previousDate)
               .input("newd", mssql.Date, h.newDate)
-              .input("chg", mssql.DateTime, formattedChangedAt)
-              .query(`
+              .input("chg", mssql.DateTime, formattedChangedAt).query(`
                 INSERT INTO dbo.due_date_history
                   (certification_id, previous_date, new_date, changed_at)
                 VALUES
@@ -1468,7 +1495,9 @@ app.put("/api/certifications/:id", async (req, res) => {
         await mssqlPool
           .request()
           .input("id", mssql.Int, certId)
-          .query("DELETE FROM dbo.uploads WHERE certification_id = @id AND is_invoice = 0;");
+          .query(
+            "DELETE FROM dbo.uploads WHERE certification_id = @id AND is_invoice = 0;"
+          );
       } catch (_) {}
     }
     if (Array.isArray(b.uploads)) {
@@ -1487,8 +1516,7 @@ app.put("/api/certifications/:id", async (req, res) => {
               .input("cert", mssql.Int, certId)
               .input("nm", mssql.VarChar(255), u.name)
               .input("dt", mssql.Text, u.data)
-              .input("tp", mssql.VarChar(100), u.type)
-              .query(`
+              .input("tp", mssql.VarChar(100), u.type).query(`
                 INSERT INTO dbo.uploads
                   (id, certification_id, name, data, type, is_invoice)
                 VALUES
@@ -1509,7 +1537,9 @@ app.put("/api/certifications/:id", async (req, res) => {
         await mssqlPool
           .request()
           .input("id", mssql.Int, certId)
-          .query("DELETE FROM dbo.uploads WHERE certification_id = @id AND is_invoice = 1;");
+          .query(
+            "DELETE FROM dbo.uploads WHERE certification_id = @id AND is_invoice = 1;"
+          );
       } catch (_) {}
     }
     if (b.paymentInfo?.invoiceAttachment) {
@@ -1528,8 +1558,7 @@ app.put("/api/certifications/:id", async (req, res) => {
             .input("cert", mssql.Int, certId)
             .input("nm", mssql.VarChar(255), inv.name)
             .input("dt", mssql.Text, inv.data)
-            .input("tp", mssql.VarChar(100), inv.type)
-            .query(`
+            .input("tp", mssql.VarChar(100), inv.type).query(`
               INSERT INTO dbo.uploads
                 (id, certification_id, name, data, type, is_invoice)
               VALUES
@@ -1573,6 +1602,15 @@ app.delete("/api/certifications/:id", async (req, res) => {
   }
 });
 
+// ── Static SPA Serve ───────────────────────────────────────────────
+const distDir = path.join(__dirname, "dist");
+const indexHtml = path.join(distDir, "index.html");
+app.use(express.static(distDir));
+app.use((req, res, next) => {
+  if (req.path.startsWith("/api/")) return next();
+  res.sendFile(indexHtml);
+});
+
 // 404 & Error Handlers
 app.use((_, res) => res.status(404).json({ message: "Route not found" }));
 app.use((err, _, res, __) => {
@@ -1580,8 +1618,27 @@ app.use((err, _, res, __) => {
   res.status(500).json({ message: "Server Error" });
 });
 
-// --- START SERVER ---
-const PORT = process.env.PORT || 7777;
-app.listen(PORT, () =>
-  console.log(`🚀 Cert-board on http://localhost:${PORT}`)
-);
+
+// --- START HTTPS SERVER ---
+const httpsOptions = {
+  key: fs.readFileSync(path.join(__dirname, "certs", "mydomain.key"), "utf8"),
+  cert: fs.readFileSync(
+    path.join(__dirname, "certs", "d466aacf3db3f299.crt"),
+    "utf8"
+  ),
+  ca: fs.readFileSync(
+    path.join(__dirname, "certs", "gd_bundle-g2-g1.crt"),
+    "utf8"
+  ),
+};
+
+const PORT = Number(process.env.PORT) || 12443;
+const HOST = process.env.HOST || "0.0.0.0";
+
+https.createServer(httpsOptions, app).listen(PORT, HOST, () => {
+  console.log(
+    `🔒 HTTPS Server ready → https://${
+      HOST === "0.0.0.0" ? "localhost" : HOST
+    }:${PORT}`
+  );
+});
