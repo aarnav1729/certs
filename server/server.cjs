@@ -4,7 +4,6 @@ const cors = require("cors");
 const helmet = require("helmet");
 const morgan = require("morgan");
 const session = require("express-session");
-const mysql = require("mysql2/promise");
 const mssql = require("mssql");
 
 const fs = require("fs");
@@ -49,18 +48,6 @@ async function sendEmail(to, subject, html) {
   }
 }
 
-// --- MySQL CONFIGURATION ---
-const mysqlConfig = {
-  host: process.env.MYSQL_HOST || "localhost",
-  port: Number(process.env.MYSQL_PORT) || 3306,
-  user: process.env.MYSQL_USER || "root",
-  password: process.env.MYSQL_PASSWORD || "Singhcottage@1729",
-  database: process.env.MYSQL_DB || "INVEST",
-  waitForConnections: true,
-  connectionLimit: 10,
-  queueLimit: 0,
-};
-
 // --- MSSQL CONFIGURATION ---
 const mssqlConfig = {
   user: process.env.MSSQL_USER || "SPOT_USER",
@@ -76,28 +63,23 @@ const mssqlConfig = {
 };
 let mssqlPool;
 
-// Create an “init” pool to ensure the database exists, then a real pool
-let initPool, pool;
+// single helper to run queries
+async function runQuery(text, inputs = {}) {
+  const req = mssqlPool.request();
+  for (let [name, { type, value }] of Object.entries(inputs)) {
+    req.input(name, type, value);
+  }
+  const result = await req.query(text);
+  return result.recordset;
+}
+
 (async () => {
   try {
-    initPool = await mysql.createPool({ ...mysqlConfig, database: undefined });
-    await initPool.query(
-      `CREATE DATABASE IF NOT EXISTS \`${mysqlConfig.database}\`;`
-    );
-    pool = await mysql.createPool(mysqlConfig);
-    console.log("🔌 Connected to MySQL");
-    await initDb();
-    console.log("✅ All tables & columns are in place");
-
-    // --- parallel MSSQL init ---
-    try {
-      mssqlPool = await mssql.connect(mssqlConfig);
-      console.log("🔌 Connected to MSSQL");
-    } catch (err) {
-      console.error("⚠️  MSSQL connection failed, continuing MySQL-only:", err);
-    }
+    mssqlPool = await mssql.connect(mssqlConfig);
+    console.log("🔌 Connected to MSSQL");
+    // optionally: call an initMssqlSchema() here if you need to ensure tables exist
   } catch (err) {
-    console.error("⛔ DB initialization failed", err);
+    console.error("⛔ MSSQL connection failed", err);
     process.exit(1);
   }
 })();
@@ -324,28 +306,28 @@ const users = [
     password: "baskara",
     role: "TechnicalHead",
     name: "Baskara Pandian T",
-    email: "baskara.pandian@premierenergies.com",
+    email: "mansa.m@premierenergies.com",
   },
   {
     username: "cmk",
     password: "cmk",
     role: "PlantHead",
     name: "Chandra Mauli Kumar",
-    email: "chandra.kumar@premierenergies.com",
+    email: "saisathvika.v@premierenergies.com",
   },
   {
     username: "jasveen",
     password: "jasveen",
     role: "Director",
     name: "Jasveen Saluja",
-    email: "jasveen@premierenergies.com",
+    email: "ashwin.lakra@premierenergies.com",
   },
   {
     username: "vishnu",
     password: "vishnu",
     role: "COO",
     name: "Vishnu Hazari",
-    email: "vishnu.hazari@premierenergies.com",
+    email: "madhur.kakade@premierenergies.com",
   },
   {
     username: "aarnav",
@@ -369,9 +351,27 @@ app.use(
     secret: process.env.SESSION_SECRET || "replace_this_in_prod",
     resave: false,
     saveUninitialized: false,
-    cookie: { httpOnly: true, secure: false, maxAge: 24 * 60 * 60 * 1000 },
+    // secure: true → only send over HTTPS
+    // sameSite: 'none' → allow cross-site if you ever need it
+    cookie: {
+      httpOnly: true,
+      secure: true,
+      sameSite: "none",
+      maxAge: 24 * 60 * 60 * 1000,
+    },
   })
 );
+
+// --- STATIC SPA serve (move this *above* any app.use('/api', …) calls) ---
+const distDir = path.join(__dirname, "dist");
+const indexHtml = path.join(distDir, "index.html");
+
+app.use(express.static(distDir));
+
+// anything *not* beginning with /api → serve index.html
+app.get(/^\/(?!api\/).*/, (req, res) => {
+  res.sendFile(indexHtml);
+});
 
 // ── In-Memory OTP Store & Routes ─────────────────────────────────────────
 const otps = {}; // { [email]: { code, expiresAt, user } }
@@ -493,79 +493,104 @@ app.use("/api", requireAuth);
 // --- CRUD: LIST ALL CERTIFICATIONS ---
 app.get("/api/certifications", async (req, res) => {
   try {
-    const [rows] = await pool.query(`
+    // ── load all certifications using our MSSQL helper ──
+    const rows = await runQuery(`
       SELECT
         id,
-        id          AS serialNumber,
-        project_name        AS projectName,
-        project_details     AS projectDetails,
-        material AS material,
-        testing_laboratory  AS testingLaboratory,
-        testing_approved_by AS testingApprovedBy,
+        id                         AS serialNumber,
+        project_name               AS projectName,
+        project_details            AS projectDetails,
+        material,
+        testing_laboratory         AS testingLaboratory,
+        testing_approved_by        AS testingApprovedBy,
         status,
-        DATE_FORMAT(due_date, '%Y-%m-%d')          AS dueDate,
-        last_updated_on                           AS lastUpdatedOn,
+        CONVERT(varchar(10), due_date, 120)          AS dueDate,
+        last_updated_on                              AS lastUpdatedOn,
         remarks,
-        paid_for_by                               AS paidForBy,
+        paid_for_by                                  AS paidForBy,
         currency,
         amount,
-        supplier_name                             AS supplierName,
-        supplier_amount                           AS supplierAmount,
-        premier_amount                            AS premierAmount,
-        customization_customer_name               AS customerName,
-        customization_comments                    AS comments,
-        sample_quantity                           AS sampleQuantity,
-        certification_type                        AS certificationType,
-        technical_head_status   AS technicalHeadStatus,
-        technical_head_comment  AS technicalHeadComment,
-        technical_head_at       AS technicalHeadAt,
-        plant_head_status       AS plantHeadStatus,
-        plant_head_comment      AS plantHeadComment,
-        plant_head_at           AS plantHeadAt,
-        director_status         AS directorStatus,
-        director_comment        AS directorComment,
-        director_at             AS directorAt,
-        coo_status              AS cooStatus,
-        coo_comment             AS cooComment,
-        coo_at                  AS cooAt,
-        DATE_FORMAT(created_at, '%Y-%m-%dT%H:%i:%s.000Z') AS createdAt
-      FROM certifications
+        supplier_name                                AS supplierName,
+        supplier_amount                              AS supplierAmount,
+        premier_amount                               AS premierAmount,
+        customization_customer_name                  AS customerName,
+        customization_comments                       AS comments,
+        sample_quantity                              AS sampleQuantity,
+        certification_type                           AS certificationType,
+        technical_head_status      AS technicalHeadStatus,
+        technical_head_comment     AS technicalHeadComment,
+        technical_head_at          AS technicalHeadAt,
+        plant_head_status          AS plantHeadStatus,
+        plant_head_comment         AS plantHeadComment,
+        plant_head_at              AS plantHeadAt,
+        director_status            AS directorStatus,
+        director_comment           AS directorComment,
+        director_at                AS directorAt,
+        coo_status                 AS cooStatus,
+        coo_comment                AS cooComment,
+        coo_at                     AS cooAt,
+        CONVERT(varchar(24), created_at, 126)        AS createdAt
+      FROM dbo.certifications
       ORDER BY id;
     `);
 
     const results = [];
-    for (let row of rows) {
+
+    for (const row of rows) {
       const id = row.id;
-      // fetch arrays
-      const [pt] = await pool.query(
-        "SELECT product_type FROM certification_product_types WHERE certification_id=?",
-        [id]
+
+      // fetch product types
+      const pt = await runQuery(
+        `SELECT product_type 
+           FROM dbo.certification_product_types 
+          WHERE certification_id = @id`,
+        { id: { type: mssql.Int, value: id } }
       );
-      const [mc] = await pool.query(
-        "SELECT material_category FROM certification_material_categories WHERE certification_id=?",
-        [id]
+
+      // fetch material categories
+      const mc = await runQuery(
+        `SELECT material_category 
+           FROM dbo.certification_material_categories 
+          WHERE certification_id = @id`,
+        { id: { type: mssql.Int, value: id } }
       );
-      const [pl] = await pool.query(
-        "SELECT production_line FROM certification_production_lines WHERE certification_id=?",
-        [id]
+
+      // fetch production lines
+      const pl = await runQuery(
+        `SELECT production_line 
+           FROM dbo.certification_production_lines 
+          WHERE certification_id = @id`,
+        { id: { type: mssql.Int, value: id } }
       );
-      const [dh] = await pool.query(
+
+      // fetch due date history
+      const dh = await runQuery(
         `SELECT
-           DATE_FORMAT(previous_date, '%Y-%m-%d') AS previousDate,
-           DATE_FORMAT(new_date,      '%Y-%m-%d') AS newDate,
-           changed_at                 AS changedAt
-         FROM due_date_history
-         WHERE certification_id=?
-         ORDER BY changed_at`,
-        [id]
+           CONVERT(varchar(10), previous_date, 120) AS previousDate,
+           CONVERT(varchar(10), new_date, 120)      AS newDate,
+           changed_at                              AS changedAt
+         FROM dbo.due_date_history
+         WHERE certification_id = @id
+         ORDER BY changed_at ASC`,
+        { id: { type: mssql.Int, value: id } }
       );
-      const [ups] = await pool.query(
-        "SELECT id, name, data, type FROM uploads WHERE certification_id=? AND is_invoice=0",
-        [id]
+
+      // fetch uploads (non-invoice)
+      const ups = await runQuery(
+        `SELECT id, name, data, type
+           FROM dbo.uploads
+          WHERE certification_id = @id
+            AND is_invoice = 0`,
+        { id: { type: mssql.Int, value: id } }
       );
-      const [inv] = await pool.query(
-        "SELECT id, name, data, type FROM uploads WHERE certification_id=? AND is_invoice=1",
-        [id]
+
+      // fetch invoice attachment
+      const inv = await runQuery(
+        `SELECT id, name, data, type
+           FROM dbo.uploads
+          WHERE certification_id = @id
+            AND is_invoice = 1`,
+        { id: { type: mssql.Int, value: id } }
       );
 
       results.push({
@@ -589,7 +614,7 @@ app.get("/api/certifications", async (req, res) => {
 
     res.json(results);
   } catch (err) {
-    console.error(err);
+    console.error("GET /api/certifications error:", err);
     res.status(500).json({ message: "Server Error" });
   }
 });
@@ -597,21 +622,42 @@ app.get("/api/certifications", async (req, res) => {
 // --- APPROVAL ENDPOINT WITH EMAIL NOTIFICATIONS ---
 app.post("/api/certifications/:id/approve", requireAuth, async (req, res) => {
   try {
-    const certId = Number(req.params.id);
-    if (Number.isNaN(certId)) {
+    // 1) Validate & parse certification ID
+    const certId = parseInt(req.params.id, 10);
+    if (isNaN(certId)) {
       return res.status(400).json({ message: "Invalid certification ID" });
     }
 
+    // ——— NEW: fetch current stage statuses ———
+    const [existing] = await runQuery(
+      `SELECT technical_head_status, plant_head_status, director_status, coo_status, status
+         FROM dbo.certifications
+        WHERE id = @id;`,
+      { id: { type: mssql.Int, value: certId } }
+    );
+    // if *any* stage is already Rejected, block
+    if (
+      existing.technical_head_status === "Rejected" ||
+      existing.plant_head_status === "Rejected" ||
+      existing.director_status === "Rejected" ||
+      existing.coo_status === "Rejected"
+    ) {
+      return res.status(400).json({
+        message:
+          "This request has already been rejected and cannot be approved.",
+      });
+    }
+
+    // 2) Validate action
     const { action, comment } = req.body;
-    // Only these two are allowed
     if (!["Approved", "Rejected"].includes(action)) {
       return res
         .status(400)
         .json({ message: "Action must be 'Approved' or 'Rejected'" });
     }
 
+    // 3) Determine stage based on user role
     const role = req.session.user.role;
-    // Map session role to column prefix
     const stageMap = {
       TechnicalHead: "technical_head",
       PlantHead: "plant_head",
@@ -625,131 +671,126 @@ app.post("/api/certifications/:id/approve", requireAuth, async (req, res) => {
         .json({ message: "Your role is not permitted to approve" });
     }
 
-    // Build column names
     const statusCol = `${stageKey}_status`;
     const commentCol = `${stageKey}_comment`;
     const atCol = `${stageKey}_at`;
 
-    // Perform the update
-    await pool.execute(
-      `UPDATE certifications
-         SET ${statusCol} = ?,
-             ${commentCol} = ?,
-             ${atCol}      = CURRENT_TIMESTAMP
-       WHERE id = ?`,
-      [action, comment || null, certId]
-    );
-
-    // MSSQL update fallback
-    if (mssqlPool) {
-      try {
-        await mssqlPool
-          .request()
-          .input("action", mssql.VarChar(20), action)
-          .input("comment", mssql.Text, comment || null)
-          .input("id", mssql.Int, certId).query(`
-           UPDATE dbo.certifications
+    // 4) Update this stage—and if it's a rejection, also flip the top‐level status
+    await runQuery(
+      `
+          UPDATE dbo.certifications
              SET ${statusCol} = @action,
                  ${commentCol} = @comment,
                  ${atCol}      = GETDATE()
-           WHERE id = @id
-         `);
-      } catch (e) {
-        console.error("⚠️ MSSQL UPDATE failed:", e);
+             ${action === "Rejected" ? ", status = 'Rejected'" : ""}
+           WHERE id = @id;
+          `,
+      {
+        action: { type: mssql.VarChar(20), value: action },
+        comment: { type: mssql.Text, value: comment || null },
+        id: { type: mssql.Int, value: certId },
       }
-    }
-
-    // Re-fetch the updated row + all its related arrays
-    const [[row]] = await pool.query(
-      `SELECT
-         id,
-         id                         AS serialNumber,
-         project_name               AS projectName,
-         project_details            AS projectDetails,
-         material                   AS material,
-         testing_laboratory         AS testingLaboratory,
-         testing_approved_by        AS testingApprovedBy,
-         status,
-         DATE_FORMAT(due_date, '%Y-%m-%d') AS dueDate,
-         last_updated_on            AS lastUpdatedOn,
-         remarks,
-         paid_for_by                AS paidForBy,
-         currency,
-         amount,
-         supplier_name              AS supplierName,
-         supplier_amount            AS supplierAmount,
-         premier_amount             AS premiereAmount,
-         customization_customer_name AS customerName,
-         customization_comments     AS comments,
-         sample_quantity            AS sampleQuantity,
-         certification_type         AS certificationType,
-         technical_head_status      AS technicalHeadStatus,
-         technical_head_comment     AS technicalHeadComment,
-         technical_head_at          AS technicalHeadAt,
-         plant_head_status          AS plantHeadStatus,
-         plant_head_comment         AS plantHeadComment,
-         plant_head_at              AS plantHeadAt,
-         director_status            AS directorStatus,
-         director_comment           AS directorComment,
-         director_at                AS directorAt,
-         coo_status                 AS cooStatus,
-         coo_comment                AS cooComment,
-         coo_at                     AS cooAt,
-         DATE_FORMAT(created_at, '%Y-%m-%dT%H:%i:%s.000Z') AS createdAt
-       FROM certifications
-       WHERE id = ?`,
-      [certId]
     );
-    if (!row) {
+
+    // 5) Re-fetch the updated certification
+    const rows = await runQuery(
+      `
+      SELECT
+        id,
+        id                         AS serialNumber,
+        project_name               AS projectName,
+        project_details            AS projectDetails,
+        material,
+        testing_laboratory         AS testingLaboratory,
+        testing_approved_by        AS testingApprovedBy,
+        status,
+        CONVERT(varchar(10), due_date, 120)    AS dueDate,
+        last_updated_on                        AS lastUpdatedOn,
+        remarks,
+        paid_for_by                            AS paidForBy,
+        currency,
+        amount,
+        supplier_name                          AS supplierName,
+        supplier_amount                        AS supplierAmount,
+        premier_amount                         AS premierAmount,
+        customization_customer_name            AS customerName,
+        customization_comments                 AS comments,
+        sample_quantity                        AS sampleQuantity,
+        certification_type                     AS certificationType,
+        technical_head_status      AS technicalHeadStatus,
+        technical_head_comment     AS technicalHeadComment,
+        technical_head_at          AS technicalHeadAt,
+        plant_head_status          AS plantHeadStatus,
+        plant_head_comment         AS plantHeadComment,
+        plant_head_at              AS plantHeadAt,
+        director_status            AS directorStatus,
+        director_comment           AS directorComment,
+        director_at                AS directorAt,
+        coo_status                 AS cooStatus,
+        coo_comment                AS cooComment,
+        coo_at                     AS cooAt,
+        CONVERT(varchar(24), created_at, 126) AS createdAt
+      FROM dbo.certifications
+      WHERE id = @id;
+      `,
+      { id: { type: mssql.Int, value: certId } }
+    );
+    if (!rows.length) {
       return res.status(404).json({ message: "Certification not found" });
     }
+    const row = rows[0];
 
-    // load all array fields in parallel
-    const [[pt], [mc], [pl], [dh], [ups], [inv]] = await Promise.all([
-      pool.query(
-        `SELECT product_type FROM certification_product_types WHERE certification_id=?`,
-        [certId]
+    // 6) Fetch related arrays in parallel
+    const [
+      productTypes,
+      materialCategories,
+      productionLines,
+      dueDateHistory,
+      uploads,
+      invoiceRows,
+    ] = await Promise.all([
+      runQuery(
+        `SELECT product_type FROM dbo.certification_product_types WHERE certification_id = @id;`,
+        { id: { type: mssql.Int, value: certId } }
       ),
-      pool.query(
-        `SELECT material_category FROM certification_material_categories WHERE certification_id=?`,
-        [certId]
+      runQuery(
+        `SELECT material_category FROM dbo.certification_material_categories WHERE certification_id = @id;`,
+        { id: { type: mssql.Int, value: certId } }
       ),
-      pool.query(
-        `SELECT production_line FROM certification_production_lines WHERE certification_id=?`,
-        [certId]
+      runQuery(
+        `SELECT production_line FROM dbo.certification_production_lines WHERE certification_id = @id;`,
+        { id: { type: mssql.Int, value: certId } }
       ),
-      pool.query(
-        `SELECT
-           DATE_FORMAT(previous_date, '%Y-%m-%d') AS previousDate,
-           DATE_FORMAT(new_date,      '%Y-%m-%d') AS newDate,
-           changed_at                 AS changedAt
-         FROM due_date_history
-         WHERE certification_id=?
-         ORDER BY changed_at`,
-        [certId]
+      runQuery(
+        `
+        SELECT
+          CONVERT(varchar(10), previous_date, 120) AS previousDate,
+          CONVERT(varchar(10), new_date,      120) AS newDate,
+          changed_at                              AS changedAt
+        FROM dbo.due_date_history
+        WHERE certification_id = @id
+        ORDER BY changed_at ASC;
+        `,
+        { id: { type: mssql.Int, value: certId } }
       ),
-      pool.query(
-        `SELECT id, name, data, type
-         FROM uploads
-         WHERE certification_id=? AND is_invoice=0`,
-        [certId]
+      runQuery(
+        `SELECT id, name, data, type FROM dbo.uploads WHERE certification_id = @id AND is_invoice = 0;`,
+        { id: { type: mssql.Int, value: certId } }
       ),
-      pool.query(
-        `SELECT id, name, data, type
-         FROM uploads
-         WHERE certification_id=? AND is_invoice=1`,
-        [certId]
+      runQuery(
+        `SELECT id, name, data, type FROM dbo.uploads WHERE certification_id = @id AND is_invoice = 1;`,
+        { id: { type: mssql.Int, value: certId } }
       ),
     ]);
 
-    // assemble full object
+    // 7) Assemble the full updated certification object
     const updatedCert = {
       ...row,
-      productType: pt.map((r) => r.product_type),
-      materialCategories: mc.map((r) => r.material_category),
-      productionLine: pl.map((r) => r.production_line),
-      dueDateHistory: dh,
-      uploads: ups,
+      productType: productTypes.map((r) => r.product_type),
+      materialCategories: materialCategories.map((r) => r.material_category),
+      productionLine: productionLines.map((r) => r.production_line),
+      dueDateHistory,
+      uploads,
       paymentInfo: {
         paidForBy: row.paidForBy,
         currency: row.currency,
@@ -757,173 +798,193 @@ app.post("/api/certifications/:id/approve", requireAuth, async (req, res) => {
         supplierName: row.supplierName,
         supplierAmount: row.supplierAmount,
         premierAmount: row.premierAmount,
-        invoiceAttachment: inv[0] || null,
+        invoiceAttachment: invoiceRows[0] || null,
       },
     };
 
-    // Now send notification email
-    let to;
-    let subject;
-    let html;
-
+    // 8) Build notification email
     const headerBanner = `
-  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#0078D4; padding:20px 0;">
-    <tr>
-      <td align="center">
-        <h1 style="color:#fff; margin:0; font-size:24px;">✉️ Certification Update</h1>
-      </td>
-    </tr>
-  </table>
+<table width="100%" cellpadding="0" cellspacing="0" style="background-color:#0078D4; padding:20px 0;">
+  <tr><td align="center">
+    <h1 style="color:#fff; margin:0; font-size:24px;">✉️ Certification Update</h1>
+  </td></tr>
+</table>
+`;
+    const detailsTable = (id, name, due) => `
+<table cellpadding="10" cellspacing="0" border="1" style="border-collapse:collapse; width:100%; background-color:#fff; margin-top:15px;">
+  <tr style="background-color:#0078D4; color:#fff;">
+    <th align="left">Field</th><th align="left">Value</th>
+  </tr>
+  <tr><td><strong>ID</strong></td><td>${id}</td></tr>
+  <tr style="background-color:#f4f4f4;"><td><strong>Project Name</strong></td><td>${name}</td></tr>
+  <tr><td><strong>Due Date</strong></td><td>${due}</td></tr>
+</table>
 `;
 
-    const detailsTable = (id, name, due) => `
-  <table cellpadding="10" cellspacing="0" border="1" style="border-collapse:collapse; width:100%; background-color:#fff; margin-top:15px;">
-    <tr style="background-color:#0078D4; color:#fff;">
-      <th align="left">Field</th><th align="left">Value</th>
-    </tr>
-    <tr><td><strong>ID</strong></td><td>${id}</td></tr>
-    <tr style="background-color:#f4f4f4;"><td><strong>Project Name</strong></td><td>${name}</td></tr>
-    <tr><td><strong>Due Date</strong></td><td>${due}</td></tr>
-  </table>
-`;
+    let to, subject, html;
 
     if (action === "Rejected") {
-      // 🎯 Notify the Requestor on any rejection
+      // Notify requestor on rejection
       to = "aarnav.singh@premierenergies.com";
       subject = `Certification Request #${certId} Rejected by ${req.session.user.name}`;
       html = `
-    <div style="font-family:Arial,sans-serif; color:#333; line-height:1.4;">
-      ${headerBanner}
-      <div style="padding:20px; background-color:#f9f9f9; max-width:600px; margin:0 auto;">
-        <p style="font-size:16px;">Hello <strong>Praful</strong>,</p>
-        <p style="font-size:14px;">
-          Your certification request <strong>#${certId}</strong> (${
+<div style="font-family:Arial,sans-serif; color:#333; line-height:1.4;">
+  ${headerBanner}
+  <div style="padding:20px; background-color:#f9f9f9; max-width:600px; margin:0 auto;">
+    <p style="font-size:16px;">Hello <strong>Praful</strong>,</p>
+    <p style="font-size:14px;">
+      Your certification request <strong>#${certId}</strong> (${
         row.projectName
-      }) has been <span style="color:#D32F2F;font-weight:bold;">rejected</span> by <strong>${
-        req.session.user.name
-      }</strong>.
-        </p>
-        <p style="font-size:14px;"><strong>Comments:</strong> ${
-          comment || "No comment provided."
-        }</p>
-        ${detailsTable(certId, row.projectName, row.dueDate)}
-        <p style="font-size:14px; margin-top:20px;">Please address the comments and resubmit if appropriate: <a href="https://certifypro.premierenergies.com:12443/" style="color:#0078D4; text-decoration:none;">Create New Request</a></p>
-        <p style="font-size:14px; margin-bottom:30px;">We’re here to help if you need any assistance.</p>
-        <p style="font-size:14px; margin:0;">
-          Thanks &amp; Regards,<br/>
-          Team CertifyPro
-        </p>
-      </div>
-    </div>
-  `;
+      }) has been
+      <span style="color:#D32F2F; font-weight:bold;">rejected</span> by
+      <strong>${req.session.user.name}</strong>.
+    </p>
+    <p style="font-size:14px;"><strong>Comments:</strong> ${
+      comment || "No comment provided."
+    }</p>
+    ${detailsTable(certId, row.projectName, row.dueDate)}
+    <p style="font-size:14px; margin-top:20px;">
+      Please address the comments and resubmit if appropriate:
+      <a href="https://certifypro.premierenergies.com:12443/" style="color:#0078D4; text-decoration:none;">Create New Request</a>
+    </p>
+    <p style="font-size:14px; margin-bottom:30px;">We’re here to help if you need any assistance.</p>
+    <p style="font-size:14px; margin:0;">
+      Thanks &amp; Regards,<br/>
+      Team CertifyPro
+    </p>
+  </div>
+</div>
+`;
     } else {
-      // ✅ Approved → notify the next stage
+      // Approved → notify next stage or final
       switch (role) {
         case "TechnicalHead":
           to = "aarnav.singh@premierenergies.com";
           subject = `Certification Request #${certId} Approved by Technical Head`;
           html = `
-        <div style="font-family:Arial,sans-serif; color:#333; line-height:1.4;">
-          ${headerBanner}
-          <div style="padding:20px; background-color:#f9f9f9; max-width:600px; margin:0 auto;">
-            <p style="font-size:16px;">Hello <strong>Chandramauli Sir</strong>,</p>
-            <p style="font-size:14px;">
-              Certification request <strong>#${certId}</strong> (${
-            row.projectName
-          }) has been <span style="color:#388E3C;font-weight:bold;">approved</span> by <strong>Baskara Sir</strong>.
-            </p>
-            ${detailsTable(certId, row.projectName, row.dueDate)}
-            <p style="font-size:14px; margin-top:20px;">Please review it at your earliest convenience.</p>
-            <p style="font-size:14px; margin-bottom:30px;">Your prompt action is appreciated: <a href="https://certifypro.premierenergies.com:12443/" style="color:#0078D4; text-decoration:none;">View Request</a></p>
-            <p style="font-size:14px; margin:0;">
-              Thanks &amp; Regards,<br/>
-              Team CertifyPro
-            </p>
-          </div>
-        </div>
-      `;
+<div style="font-family:Arial,sans-serif;color:#333;line-height:1.4;">
+  ${headerBanner}
+  <div style="padding:20px;background-color:#f9f9f9;max-width:600px;margin:0 auto;">
+    <p style="font-size:16px;">Hello <strong>Chandramauli Sir</strong>,</p>
+    <p style="font-size:14px;">
+      Certification request <strong>#${certId}</strong> (${row.projectName})
+      has been <span style="color:#388E3C;font-weight:bold;">approved</span> by
+      <strong>Baskara Sir</strong>.
+    </p>
+    ${detailsTable(certId, row.projectName, row.dueDate)}
+    <p style="font-size:14px;margin-top:20px;">
+      Please review it at your earliest convenience.
+    </p>
+    <p style="font-size:14px;margin-bottom:30px;">
+      Your prompt action is appreciated:
+      <a href="https://certifypro.premierenergies.com:12443/" style="color:#0078D4;text-decoration:none;">View Request</a>
+    </p>
+    <p style="font-size:14px;margin:0;">
+      Thanks &amp; Regards,<br/>
+      Team CertifyPro
+    </p>
+  </div>
+</div>
+`;
           break;
 
         case "PlantHead":
           to = "aarnav.singh@premierenergies.com";
           subject = `Certification Request #${certId} Approved by Plant Head`;
           html = `
-        <div style="font-family:Arial,sans-serif; color:#333; line-height:1.4;">
-          ${headerBanner}
-          <div style="padding:20px; background-color:#f9f9f9; max-width:600px; margin:0 auto;">
-            <p style="font-size:16px;">Hello <strong>Jasveen Ma'am</strong>,</p>
-            <p style="font-size:14px;">
-              Certification request <strong>#${certId}</strong> (${
-            row.projectName
-          }) has been <span style="color:#388E3C;font-weight:bold;">approved</span> by <strong>Chandramauli Sir</strong>.
-            </p>
-            ${detailsTable(certId, row.projectName, row.dueDate)}
-            <p style="font-size:14px; margin-top:20px;">Please review it at your earliest convenience.</p>
-            <p style="font-size:14px; margin-bottom:30px;">Your prompt action is appreciated: <a href="https://certifypro.premierenergies.com:12443/" style="color:#0078D4; text-decoration:none;">View Request</a></p>
-            <p style="font-size:14px; margin:0;">
-              Thanks &amp; Regards,<br/>
-              Team CertifyPro
-            </p>
-          </div>
-        </div>
-      `;
+<div style="font-family:Arial,sans-serif;color:#333;line-height:1.4;">
+  ${headerBanner}
+  <div style="padding:20px;background-color:#f9f9f9;max-width:600px;margin:0 auto;">
+    <p style="font-size:16px;">Hello <strong>Jasveen Ma'am</strong>,</p>
+    <p style="font-size:14px;">
+      Certification request <strong>#${certId}</strong> (${row.projectName})
+      has been <span style="color:#388E3C;font-weight:bold;">approved</span> by
+      <strong>Chandramauli Sir</strong>.
+    </p>
+    ${detailsTable(certId, row.projectName, row.dueDate)}
+    <p style="font-size:14px;margin-top:20px;">
+      Please review it at your earliest convenience.
+    </p>
+    <p style="font-size:14px;margin-bottom:30px;">
+      Your prompt action is appreciated:
+      <a href="https://certifypro.premierenergies.com:12443/" style="color:#0078D4;text-decoration:none;">View Request</a>
+    </p>
+    <p style="font-size:14px;margin:0;">
+      Thanks &amp; Regards,<br/>
+      Team CertifyPro
+    </p>
+  </div>
+</div>
+`;
           break;
 
         case "Director":
           to = "aarnav.singh@premierenergies.com";
           subject = `Certification Request #${certId} Approved by Director`;
           html = `
-        <div style="font-family:Arial,sans-serif; color:#333; line-height:1.4;">
-          ${headerBanner}
-          <div style="padding:20px; background-color:#f9f9f9; max-width:600px; margin:0 auto;">
-            <p style="font-size:16px;">Hello <strong>Vishnu Sir</strong>,</p>
-            <p style="font-size:14px;">
-              Certification request <strong>#${certId}</strong> (${
-            row.projectName
-          }) has been <span style="color:#388E3C;font-weight:bold;">approved</span> by <strong>Jasveen Ma’am</strong>.
-            </p>
-            ${detailsTable(certId, row.projectName, row.dueDate)}
-            <p style="font-size:14px; margin-top:20px;">Please review it at your earliest convenience.</p>
-            <p style="font-size:14px; margin-bottom:30px;">Your prompt action is appreciated: <a href="https://certifypro.premierenergies.com:12443/" style="color:#0078D4; text-decoration:none;">View Request</a></p>
-            <p style="font-size:14px; margin:0;">
-              Thanks &amp; Regards,<br/>
-              Team CertifyPro
-            </p>
-          </div>
-        </div>
-      `;
+<div style="font-family:Arial,sans-serif;color:#333;line-height:1.4;">
+  ${headerBanner}
+  <div style="padding:20px;background-color:#f9f9f9;max-width:600px;margin:0 auto;">
+    <p style="font-size:16px;">Hello <strong>Vishnu Sir</strong>,</p>
+    <p style="font-size:14px;">
+      Certification request <strong>#${certId}</strong> (${row.projectName})
+      has been <span style="color:#388E3C;font-weight:bold;">approved</span> by
+      <strong>Jasveen Ma’am</strong>.
+    </p>
+    ${detailsTable(certId, row.projectName, row.dueDate)}
+    <p style="font-size:14px;margin-top:20px;">
+      Please review it at your earliest convenience.
+    </p>
+    <p style="font-size:14px;margin-bottom:30px;">
+      Your prompt action is appreciated:
+      <a href="https://certifypro.premierenergies.com:12443/" style="color:#0078D4;text-decoration:none;">View Request</a>
+    </p>
+    <p style="font-size:14px;margin:0;">
+      Thanks &amp; Regards,<br/>
+      Team CertifyPro
+    </p>
+  </div>
+</div>
+`;
           break;
 
         case "COO":
           to = "aarnav.singh@premierenergies.com";
           subject = `Certification Request #${certId} Fully Approved`;
           html = `
-        <div style="font-family:Arial,sans-serif; color:#333; line-height:1.4;">
-          ${headerBanner}
-          <div style="padding:20px; background-color:#f9f9f9; max-width:600px; margin:0 auto;">
-            <p style="font-size:16px;">Hello <strong>Praful</strong>,</p>
-            <p style="font-size:14px;">
-              Your certification request <strong>#${certId}</strong> (${
+<div style="font-family:Arial,sans-serif;color:#333;line-height:1.4;">
+  ${headerBanner}
+  <div style="padding:20px;background-color:#f9f9f9;max-width:600px;margin:0 auto;">
+    <p style="font-size:16px;">Hello <strong>Praful</strong>,</p>
+    <p style="font-size:14px;">
+      Your certification request <strong>#${certId}</strong> (${
             row.projectName
-          }) has been <span style="color:#388E3C;font-weight:bold;">approved</span> by <strong>Vishnu Sir (COO)</strong>. Congratulations – it is now fully approved!
-            </p>
-            ${detailsTable(certId, row.projectName, row.dueDate)}
-            <p style="font-size:14px; margin-top:20px;">You may now proceed to the next steps.</p>
-            <p style="font-size:14px; margin-bottom:30px;">Thank you for your collaboration.</p>
-            <p style="font-size:14px; margin:0;">
-              Thanks &amp; Regards,<br/>
-              Team CertifyPro
-            </p>
-          </div>
-        </div>
-      `;
+          })
+      has been <span style="color:#388E3C;font-weight:bold;">approved</span> by
+      <strong>Vishnu Sir (COO)</strong>. Congratulations – it is now fully approved!
+    </p>
+    ${detailsTable(certId, row.projectName, row.dueDate)}
+    <p style="font-size:14px;margin-top:20px;">
+      You may now proceed to the next steps.
+    </p>
+    <p style="font-size:14px;margin-bottom:30px;">
+      Thank you for your collaboration.
+    </p>
+    <p style="font-size:14px;margin:0;">
+      Thanks &amp; Regards,<br/>
+      Team CertifyPro
+    </p>
+  </div>
+</div>
+`;
           break;
       }
     }
-    // send the email
+
+    // 9) Send the notification email
     await sendEmail(to, subject, html);
 
-    // finally, return the updated certification object
+    // 10) Return the updated certification
     return res.json(updatedCert);
   } catch (err) {
     console.error("Approval endpoint error:", err);
@@ -934,103 +995,153 @@ app.post("/api/certifications/:id/approve", requireAuth, async (req, res) => {
 // --- GET ONE ---
 app.get("/api/certifications/:id", async (req, res) => {
   try {
-    const id = Number(req.params.id);
-    const [[row]] = await pool.query(
-      `SELECT
-         *
-       FROM certifications
-       WHERE id=?`,
-      [id]
-    );
-    if (!row) return res.status(404).json({ message: "Not found" });
+    const id = parseInt(req.params.id, 10);
+    if (isNaN(id)) {
+      return res.status(400).json({ message: "Invalid certification ID" });
+    }
 
-    // fetch arrays as above
-    const [pt] = await pool.query(
-      "SELECT product_type FROM certification_product_types WHERE certification_id=?",
-      [id]
-    );
-    const [mc] = await pool.query(
-      "SELECT material_category FROM certification_material_categories WHERE certification_id=?",
-      [id]
-    );
-    const [pl] = await pool.query(
-      "SELECT production_line FROM certification_production_lines WHERE certification_id=?",
-      [id]
-    );
-    const [dh] = await pool.query(
-      `SELECT
-         DATE_FORMAT(previous_date, '%Y-%m-%d') AS previousDate,
-         DATE_FORMAT(new_date,      '%Y-%m-%d') AS newDate,
-         changed_at                 AS changedAt
-       FROM due_date_history
-       WHERE certification_id=?
-       ORDER BY changed_at`,
-      [id]
-    );
-    const [ups] = await pool.query(
-      "SELECT id, name, data, type FROM uploads WHERE certification_id=? AND is_invoice=0",
-      [id]
-    );
-    const [inv] = await pool.query(
-      "SELECT id, name, data, type FROM uploads WHERE certification_id=? AND is_invoice=1",
-      [id]
+    // ── load the main certification record ──
+    const rows = await runQuery(
+      `
+        SELECT
+          id,
+          id                         AS serialNumber,
+          project_name               AS projectName,
+          project_details            AS projectDetails,
+          material,
+          testing_laboratory         AS testingLaboratory,
+          testing_approved_by        AS testingApprovedBy,
+          status,
+          CONVERT(varchar(10), due_date, 120)         AS dueDate,
+          last_updated_on                             AS lastUpdatedOn,
+          remarks,
+          paid_for_by                                 AS paidForBy,
+          currency,
+          amount,
+          supplier_name                               AS supplierName,
+          supplier_amount                             AS supplierAmount,
+          premier_amount                              AS premierAmount,
+          customization_customer_name                 AS customerName,
+          customization_comments                      AS comments,
+          sample_quantity                             AS sampleQuantity,
+          certification_type                          AS certificationType,
+          technical_head_status      AS technicalHeadStatus,
+          technical_head_comment     AS technicalHeadComment,
+          technical_head_at          AS technicalHeadAt,
+          plant_head_status          AS plantHeadStatus,
+          plant_head_comment         AS plantHeadComment,
+          plant_head_at              AS plantHeadAt,
+          director_status            AS directorStatus,
+          director_comment           AS directorComment,
+          director_at                AS directorAt,
+          coo_status                 AS cooStatus,
+          coo_comment                AS cooComment,
+          coo_at                     AS cooAt,
+          CONVERT(varchar(24), created_at, 126)       AS createdAt
+        FROM dbo.certifications
+        WHERE id = @id;
+      `,
+      { id: { type: mssql.Int, value: id } }
     );
 
+    if (!rows.length) {
+      return res.status(404).json({ message: "Certification not found" });
+    }
+    const row = rows[0];
+
+    // ── fetch related arrays ──
+    const productTypes = await runQuery(
+      `SELECT product_type FROM dbo.certification_product_types WHERE certification_id = @id;`,
+      { id: { type: mssql.Int, value: id } }
+    );
+    const materialCategories = await runQuery(
+      `SELECT material_category FROM dbo.certification_material_categories WHERE certification_id = @id;`,
+      { id: { type: mssql.Int, value: id } }
+    );
+    const productionLines = await runQuery(
+      `SELECT production_line FROM dbo.certification_production_lines WHERE certification_id = @id;`,
+      { id: { type: mssql.Int, value: id } }
+    );
+    const dueDateHistory = await runQuery(
+      `
+        SELECT
+          CONVERT(varchar(10), previous_date, 120) AS previousDate,
+          CONVERT(varchar(10), new_date, 120)      AS newDate,
+          changed_at                              AS changedAt
+        FROM dbo.due_date_history
+        WHERE certification_id = @id
+        ORDER BY changed_at ASC;
+      `,
+      { id: { type: mssql.Int, value: id } }
+    );
+    const uploads = await runQuery(
+      `
+        SELECT id, name, data, type
+        FROM dbo.uploads
+        WHERE certification_id = @id
+          AND is_invoice = 0;
+      `,
+      { id: { type: mssql.Int, value: id } }
+    );
+    const invoiceRows = await runQuery(
+      `
+        SELECT id, name, data, type
+        FROM dbo.uploads
+        WHERE certification_id = @id
+          AND is_invoice = 1;
+      `,
+      { id: { type: mssql.Int, value: id } }
+    );
+
+    // ── assemble and return ──
     res.json({
       ...row,
-      serialNumber: row.id,
-      dueDate: row.due_date.toISOString().slice(0, 10),
-      createdAt: row.created_at.toISOString(),
-      lastUpdatedOn: row.last_updated_on,
-      productType: pt.map((r) => r.product_type),
-      materialCategories: mc.map((r) => r.material_category),
-      productionLine: pl.map((r) => r.production_line),
-      dueDateHistory: dh,
-      uploads: ups,
+      productType: productTypes.map((r) => r.product_type),
+      materialCategories: materialCategories.map((r) => r.material_category),
+      productionLine: productionLines.map((r) => r.production_line),
+      dueDateHistory,
+      uploads,
       paymentInfo: {
-        paidForBy: row.paid_for_by,
+        paidForBy: row.paidForBy,
         currency: row.currency,
         amount: row.amount,
-        supplierName: row.supplier_name,
-        supplierAmount: row.supplier_amount,
-        premierAmount: row.premier_amount,
-        invoiceAttachment: inv[0] || null,
+        supplierName: row.supplierName,
+        supplierAmount: row.supplierAmount,
+        premierAmount: row.premierAmount,
+        invoiceAttachment: invoiceRows[0] || null,
       },
     });
   } catch (err) {
-    console.error(err);
+    console.error("GET /api/certifications/:id error:", err);
     res.status(500).json({ message: "Server Error" });
   }
 });
 
 // --- CREATE ---
 app.post("/api/certifications", async (req, res) => {
-  const conn = await pool.getConnection();
+  let transaction;
   try {
-    await conn.beginTransaction();
-
-    // Destructure incoming data
+    // 1) Destructure & validate body
     const {
       projectName,
-      projectDetails,
+      projectDetails = "",
       material,
       testingLaboratory,
-      testingApprovedBy,
+      testingApprovedBy = null,
       status,
       dueDate,
-      remarks,
-      paymentInfo,
-      sampleQuantity,
+      remarks = "",
+      paymentInfo = {},
+      sampleQuantity = null,
       certificationType,
-      customizationInfo,
-      productType,
-      materialCategories,
-      productionLine,
-      dueDateHistory,
-      uploads,
+      customizationInfo = {},
+      productType = [],
+      materialCategories = [],
+      productionLine = [],
+      dueDateHistory = [],
+      uploads = [],
     } = req.body;
 
-    // Validate required fields
     if (
       !projectName ||
       !material ||
@@ -1042,142 +1153,112 @@ app.post("/api/certifications", async (req, res) => {
       !Array.isArray(materialCategories) ||
       materialCategories.length === 0
     ) {
-      await conn.rollback();
       return res.status(400).json({ message: "Missing required fields" });
     }
 
-    // Convert undefined → null for optional columns
-    const approvedByVal = testingApprovedBy ?? null;
-    const remarksVal = remarks ?? "";
-    const paidForByVal = paymentInfo?.paidForBy ?? null;
-    const currencyVal = paymentInfo?.currency ?? null;
-    const amountVal = paymentInfo?.amount ?? null;
-    const supplierNameVal = paymentInfo?.supplierName ?? null;
-    const supplierAmountVal = paymentInfo?.supplierAmount ?? null;
-    const premierAmountVal = paymentInfo?.premierAmount ?? null;
-    const invoiceAttachment = paymentInfo?.invoiceAttachment ?? null;
-    const customerNameVal = customizationInfo?.customerName ?? null;
-    const customerCommentsVal = customizationInfo?.comments ?? null;
-    const sampleQuantityVal = sampleQuantity ?? null;
+    // 2) Start MSSQL transaction
+    transaction = new mssql.Transaction(mssqlPool);
+    await transaction.begin();
 
-    // Insert main certification record
-    const [result] = await conn.execute(
-      `INSERT INTO certifications
-          (project_name,
-           project_details,
-           material,
-           testing_laboratory,
-           testing_approved_by,
-           status,
-           due_date,
-           remarks,
-           paid_for_by,
-           currency,
-           amount,
-           supplier_name,
-           supplier_amount,
-           premier_amount,
-           customization_customer_name,
-           customization_comments,
-           sample_quantity,
-           certification_type)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        projectName,
-        projectDetails ?? "",
-        material,
-        testingLaboratory,
-        approvedByVal,
-        status,
-        dueDate,
-        remarksVal,
-        paidForByVal,
-        currencyVal,
-        amountVal,
-        supplierNameVal,
-        supplierAmountVal,
-        premierAmountVal,
-        customerNameVal,
-        customerCommentsVal,
-        sampleQuantityVal,
-        certificationType,
-      ]
-    );
-    const certId = result.insertId;
+    // 3) Insert main certification record and get new ID
+    const insertReq = new mssql.Request(transaction);
+    insertReq
+      .input("projectName", mssql.VarChar(255), projectName)
+      .input("projectDetails", mssql.Text, projectDetails)
+      .input("material", mssql.VarChar(255), material)
+      .input("testingLaboratory", mssql.VarChar(255), testingLaboratory)
+      .input("testingApprovedBy", mssql.VarChar(255), testingApprovedBy)
+      .input("status", mssql.VarChar(50), status)
+      .input("dueDate", mssql.Date, dueDate)
+      .input("remarks", mssql.Text, remarks)
+      .input("paidForBy", mssql.VarChar(50), paymentInfo.paidForBy ?? null)
+      .input("currency", mssql.VarChar(10), paymentInfo.currency ?? null)
+      .input("amount", mssql.Decimal(18, 2), paymentInfo.amount ?? null)
+      .input(
+        "supplierName",
+        mssql.VarChar(255),
+        paymentInfo.supplierName ?? null
+      )
+      .input(
+        "supplierAmount",
+        mssql.Decimal(18, 2),
+        paymentInfo.supplierAmount ?? null
+      )
+      .input(
+        "premierAmount",
+        mssql.Decimal(18, 2),
+        paymentInfo.premierAmount ?? null
+      )
+      .input(
+        "customerName",
+        mssql.VarChar(255),
+        customizationInfo.customerName ?? null
+      )
+      .input("customerComments", mssql.Text, customizationInfo.comments ?? null)
+      .input("sampleQuantity", mssql.Int, sampleQuantity)
+      .input("certificationType", mssql.VarChar(50), certificationType);
 
-    // MSSQL fallback for main INSERT
-    if (mssqlPool) {
-      try {
-        await mssqlPool
-          .request()
-          .input("projectName", mssql.VarChar(255), projectName)
-          .input("projectDetails", mssql.Text, projectDetails ?? "")
-          .input("material", mssql.VarChar(255), material)
-          .input("testing_laboratory", mssql.VarChar(255), testingLaboratory)
-          .input("testing_approved_by", mssql.VarChar(255), approvedByVal)
-          .input("status", mssql.VarChar(50), status)
-          .input("due_date", mssql.Date, dueDate)
-          .input("remarks", mssql.Text, remarksVal)
-          .input("paid_for_by", mssql.VarChar(50), paidForByVal)
-          .input("currency", mssql.VarChar(10), currencyVal)
-          .input("amount", mssql.Decimal(18, 2), amountVal)
-          .input("supplier_name", mssql.VarChar(255), supplierNameVal)
-          .input("supplier_amount", mssql.Decimal(18, 2), supplierAmountVal)
-          .input("premier_amount", mssql.Decimal(18, 2), premierAmountVal)
-          .input(
-            "customization_customer_name",
-            mssql.VarChar(255),
-            customerNameVal
-          )
-          .input("customization_comments", mssql.Text, customerCommentsVal)
-          .input("sample_quantity", mssql.Int, sampleQuantityVal)
-          .input("certification_type", mssql.VarChar(50), certificationType)
-          .query(`
-                INSERT INTO dbo.certifications
-                  (project_name, project_details, material, testing_laboratory,
-                   testing_approved_by, status, due_date, remarks,
-                   paid_for_by, currency, amount, supplier_name,
-                   supplier_amount, premier_amount,
-                   customization_customer_name, customization_comments,
-                   sample_quantity, certification_type)
-                VALUES
-                  (@projectName,@projectDetails,@material,@testing_laboratory,
-                   @testing_approved_by,@status,@due_date,@remarks,
-                   @paid_for_by,@currency,@amount,@supplier_name,
-                   @supplier_amount,@premier_amount,
-                   @customization_customer_name,@customization_comments,
-                   @sample_quantity,@certification_type);
-              `);
-      } catch (e) {
-        console.error("⚠️ MSSQL INSERT certifications failed:", e);
-      }
-    }
+    const insertResult = await insertReq.query(`
+      INSERT INTO dbo.certifications
+        (project_name,
+         project_details,
+         material,
+         testing_laboratory,
+         testing_approved_by,
+         status,
+         due_date,
+         remarks,
+         paid_for_by,
+         currency,
+         amount,
+         supplier_name,
+         supplier_amount,
+         premier_amount,
+         customization_customer_name,
+         customization_comments,
+         sample_quantity,
+         certification_type)
+      OUTPUT INSERTED.id AS id
+      VALUES
+        (@projectName,
+         @projectDetails,
+         @material,
+         @testingLaboratory,
+         @testingApprovedBy,
+         @status,
+         @dueDate,
+         @remarks,
+         @paidForBy,
+         @currency,
+         @amount,
+         @supplierName,
+         @supplierAmount,
+         @premierAmount,
+         @customerName,
+         @customerComments,
+         @sampleQuantity,
+         @certificationType);
+    `);
 
-    // Helper to bulk-insert into auxiliary tables
+    const certId = insertResult.recordset[0].id;
+
+    // 4) Helper to bulk-insert into child tables, using a fresh Request each time
     const bulkInsert = async (table, column, arr) => {
-      if (!Array.isArray(arr)) return;
-      for (const value of arr) {
-        await conn.execute(
-          `INSERT INTO ${table} (certification_id, ${column}) VALUES (?, ?)`,
-          [certId, value]
-        );
-        // MSSQL fallback
-        if (mssqlPool) {
-          try {
-            await mssqlPool
-              .request()
-              .input("id", mssql.Int, certId)
-              .input("val", mssql.VarChar(255), value).query(`
-                INSERT INTO dbo.${table}
-                  (certification_id, ${column})
-                VALUES (@id, @val);
-              `);
-          } catch (_) {}
-        }
+      for (const val of arr) {
+        const req = new mssql.Request(transaction);
+        req
+          .input("cid", mssql.Int, certId)
+          .input("val", mssql.VarChar(255), val);
+        await req.query(`
+          INSERT INTO dbo.${table}
+            (certification_id, ${column})
+          VALUES
+            (@cid, @val);
+        `);
       }
     };
 
-    // Insert product types, material categories, production lines
+    // 5) Insert product types, categories, production lines
     await bulkInsert(
       "certification_product_types",
       "product_type",
@@ -1194,522 +1275,330 @@ app.post("/api/certifications", async (req, res) => {
       productionLine
     );
 
-    // Insert due-date history entries
-    if (Array.isArray(dueDateHistory)) {
-      for (const h of dueDateHistory) {
-        await conn.execute(
-          `INSERT INTO due_date_history
-               (certification_id, previous_date, new_date, changed_at)
-             VALUES (?, ?, ?, ?)`,
-          [certId, h.previousDate, h.newDate, h.changedAt]
-        );
-        if (mssqlPool) {
-          try {
-            await mssqlPool
-              .request()
-              .input("id", mssql.Int, certId)
-              .input("prev", mssql.Date, h.previousDate)
-              .input("newd", mssql.Date, h.newDate)
-              .input("chg", mssql.DateTime, h.changedAt).query(`
-                INSERT INTO dbo.due_date_history
-                  (certification_id, previous_date, new_date, changed_at)
-                VALUES
-                  (@id, @prev, @newd, @chg);
-              `);
-          } catch (_) {}
-        }
-      }
+    // 6) Insert due-date history entries
+    for (const h of dueDateHistory) {
+      const req = new mssql.Request(transaction);
+      req
+        .input("cid", mssql.Int, certId)
+        .input("prevDate", mssql.Date, h.previousDate)
+        .input("newDate", mssql.Date, h.newDate)
+        .input("chgAt", mssql.DateTime, new Date(h.changedAt));
+      await req.query(`
+        INSERT INTO dbo.due_date_history
+          (certification_id, previous_date, new_date, changed_at)
+        VALUES
+          (@cid, @prevDate, @newDate, @chgAt);
+      `);
     }
 
-    // Insert non-invoice uploads
-    if (Array.isArray(uploads)) {
-      for (const file of uploads) {
-        await conn.execute(
-          `INSERT INTO uploads
-               (id, certification_id, name, data, type, is_invoice)
-             VALUES (?, ?, ?, ?, ?, 0)`,
-          [file.id, certId, file.name, file.data, file.type]
-        );
-        if (mssqlPool) {
-          try {
-            await mssqlPool
-              .request()
-              .input("id", mssql.Char(36), file.id)
-              .input("cert", mssql.Int, certId)
-              .input("nm", mssql.VarChar(255), file.name)
-              .input("dt", mssql.Text, file.data)
-              .input("tp", mssql.VarChar(100), file.type).query(`
-                INSERT INTO dbo.uploads
-                  (id, certification_id, name, data, type, is_invoice)
-                VALUES
-                  (@id, @cert, @nm, @dt, @tp, 0);
-              `);
-          } catch (_) {}
-        }
-      }
+    // 7) Insert non-invoice uploads
+    for (const file of uploads) {
+      const req = new mssql.Request(transaction);
+      req
+        .input("fid", mssql.Char(36), file.id)
+        .input("cid", mssql.Int, certId)
+        .input("fname", mssql.VarChar(255), file.name)
+        .input("fdata", mssql.Text, file.data)
+        .input("ftype", mssql.VarChar(100), file.type);
+      await req.query(`
+        INSERT INTO dbo.uploads
+          (id, certification_id, name, data, type, is_invoice)
+        VALUES
+          (@fid, @cid, @fname, @fdata, @ftype, 0);
+      `);
     }
 
-    // Insert invoice attachment (if any)
-    if (invoiceAttachment) {
-      await conn.execute(
-        `INSERT INTO uploads
-             (id, certification_id, name, data, type, is_invoice)
-           VALUES (?, ?, ?, ?, ?, 1)`,
-        [
-          invoiceAttachment.id,
-          certId,
-          invoiceAttachment.name,
-          invoiceAttachment.data,
-          invoiceAttachment.type,
-        ]
-      );
-      if (mssqlPool) {
-        try {
-          await mssqlPool
-            .request()
-            .input("id", mssql.Char(36), invoiceAttachment.id)
-            .input("cert", mssql.Int, certId)
-            .input("nm", mssql.VarChar(255), invoiceAttachment.name)
-            .input("dt", mssql.Text, invoiceAttachment.data)
-            .input("tp", mssql.VarChar(100), invoiceAttachment.type).query(`
-              INSERT INTO dbo.uploads
-                (id, certification_id, name, data, type, is_invoice)
-              VALUES
-                (@id, @cert, @nm, @dt, @tp, 1);
-            `);
-        } catch (_) {}
-      }
+    // 8) Insert invoice attachment (if provided)
+    if (paymentInfo.invoiceAttachment) {
+      const inv = paymentInfo.invoiceAttachment;
+      const req = new mssql.Request(transaction);
+      req
+        .input("fid", mssql.Char(36), inv.id)
+        .input("cid", mssql.Int, certId)
+        .input("fname", mssql.VarChar(255), inv.name)
+        .input("fdata", mssql.Text, inv.data)
+        .input("ftype", mssql.VarChar(100), inv.type);
+      await req.query(`
+        INSERT INTO dbo.uploads
+          (id, certification_id, name, data, type, is_invoice)
+        VALUES
+          (@fid, @cid, @fname, @fdata, @ftype, 1);
+      `);
     }
 
-    // Commit transaction
-    await conn.commit();
+    // 9) Commit transaction
+    await transaction.commit();
 
-    // Send email to Technical Head (Baskara)
+    // 10) Send notification email to Technical Head
     const newReqHtml = `
-  <div style="font-family:Arial, sans-serif; color:#333; line-height:1.4;">
-    <!-- Header Banner -->
-    <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#0078D4; padding:20px 0;">
-      <tr>
-        <td align="center">
-          <h1 style="color:#fff; margin:0; font-size:24px;">🆕 New Certification Request</h1>
-          <p style="color:#e0e0e0; margin:5px 0 0; font-size:14px;">
-            A fresh request is awaiting your review
-          </p>
-        </td>
+<div style="font-family:Arial,sans-serif;color:#333;line-height:1.4;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#0078D4;padding:20px 0;">
+    <tr><td align="center">
+      <h1 style="color:#fff;margin:0;font-size:24px;">🆕 New Certification Request</h1>
+      <p style="color:#e0e0e0;margin:5px 0 0;font-size:14px;">A fresh request is awaiting your review</p>
+    </td></tr>
+  </table>
+  <div style="padding:20px;max-width:600px;margin:0 auto;background-color:#f9f9f9;">
+    <p style="font-size:16px;margin-bottom:10px;">Hello <strong>Baskara Sir</strong>,</p>
+    <p style="font-size:14px;margin-bottom:20px;">
+      A new certification request has been submitted by <strong>Praful</strong>. Below are the details:
+    </p>
+    <table cellpadding="10" cellspacing="0" border="1" style="border-collapse:collapse;width:100%;background-color:#fff;">
+      <tr style="background-color:#0078D4;color:#fff;">
+        <th align="left">Field</th>
+        <th align="left">Value</th>
       </tr>
+      <tr><td><strong>ID</strong></td><td>${certId}</td></tr>
+      <tr style="background-color:#f4f4f4;"><td><strong>Project Name</strong></td><td>${projectName}</td></tr>
+      <tr><td><strong>Due Date</strong></td><td>${dueDate}</td></tr>
     </table>
-
-    <!-- Body Content -->
-    <div style="padding:20px; max-width:600px; margin:0 auto; background-color:#f9f9f9;">
-      <p style="font-size:16px; margin-bottom:10px;">
-        Hello <strong>Baskara Sir</strong>,
-      </p>
-      <p style="font-size:14px; margin-bottom:20px;">
-        A new certification request has been submitted by <strong>Praful</strong>. Below are the details:
-      </p>
-
-      <!-- Details Table -->
-      <table
-        cellpadding="10"
-        cellspacing="0"
-        border="1"
-        style="border-collapse:collapse; width:100%; background-color:#fff;"
-      >
-        <tr style="background-color:#0078D4; color:#fff;">
-          <th align="left">Field</th>
-          <th align="left">Value</th>
-        </tr>
-        <tr>
-          <td><strong>ID</strong></td>
-          <td>${certId}</td>
-        </tr>
-        <tr style="background-color:#f4f4f4;">
-          <td><strong>Project Name</strong></td>
-          <td>${projectName}</td>
-        </tr>
-        <tr>
-          <td><strong>Due Date</strong></td>
-          <td>${dueDate}</td>
-        </tr>
-      </table>
-
-      <p style="font-size:14px; margin:20px 0 10px;">
-        Please review the request at your earliest convenience to ensure timely processing.
-      </p>
-      <p style="font-size:14px; margin:0 0 30px;">
-        Looking forward to your prompt action: <a href="https://certifypro.premierenergies.com:12443/" style="color:#0078D4; text-decoration:none;">View Request</a>
-      </p>
-
-      <!-- Sign-off -->
-      <p style="font-size:14px; margin:0;">
-        Thanks &amp; Regards,<br/>
-        Team CertifyPro
-      </p>
-    </div>
+    <p style="font-size:14px;margin:20px 0 10px;">
+      Please review the request at your earliest convenience to ensure timely processing.
+    </p>
+    <p style="font-size:14px;margin:0 0 30px;">
+      Looking forward to your prompt action: <a href="https://certifypro.premierenergies.com:12443/" style="color:#0078D4;text-decoration:none;">View Request</a>
+    </p>
+    <p style="font-size:14px;margin:0;">Thanks &amp; Regards,<br/>Team CertifyPro</p>
   </div>
-`;
-
+</div>`;
     await sendEmail(
       "aarnav.singh@premierenergies.com",
       `New Certification Request #${certId}`,
       newReqHtml
     );
 
+    // 11) Respond
     return res.status(201).json({ id: String(certId), serialNumber: certId });
   } catch (err) {
-    // Roll back on error
-    await conn.rollback();
+    if (transaction) await transaction.rollback();
     console.error("POST /api/certifications error:", err);
     return res.status(500).json({ message: "Server Error" });
-  } finally {
-    conn.release();
   }
 });
 
 // --- UPDATE ---
 app.put("/api/certifications/:id", async (req, res) => {
-  const certId = Number(req.params.id);
-  const conn = await pool.getConnection();
-  const b = req.body; // shortcut to request body
-
+  let transaction;
   try {
-    // Start transaction
-    await conn.beginTransaction();
+    // 1) Validate & parse certification ID
+    const id = parseInt(req.params.id, 10);
+    if (isNaN(id)) {
+      return res.status(400).json({ message: "Invalid certification ID" });
+    }
 
-    // 1) Update main certification fields (leave approval columns intact)
-    await conn.execute(
-      `UPDATE certifications SET
-         project_name                = ?,
-         project_details             = ?,
-         material                    = ?,
-         testing_laboratory          = ?,
-         testing_approved_by         = ?,
-         status                      = ?,
-         due_date                    = ?,
-         remarks                     = ?,
-         paid_for_by                 = ?,
-         currency                    = ?,
-         amount                      = ?,
-         supplier_name               = ?,
-         supplier_amount             = ?,
-         premier_amount              = ?,
-         customization_customer_name = ?,
-         customization_comments      = ?,
-         sample_quantity             = ?,
-         certification_type          = ?
-       WHERE id = ?`,
-      [
-        b.projectName,
-        b.projectDetails,
-        b.material,
-        b.testingLaboratory,
-        b.testingApprovedBy ?? null,
-        b.status,
-        b.dueDate,
-        b.remarks ?? null,
-        b.paymentInfo?.paidForBy ?? null,
-        b.paymentInfo?.currency ?? null,
-        b.paymentInfo?.amount ?? null,
-        b.paymentInfo?.supplierName ?? null,
-        b.paymentInfo?.supplierAmount ?? null,
-        b.paymentInfo?.premierAmount ?? null,
-        b.customizationInfo?.customerName ?? null,
-        b.customizationInfo?.comments ?? null,
-        b.sampleQuantity ?? null,
-        b.certificationType,
-        certId,
-      ]
+    // 2) Destructure request body
+    const {
+      projectName,
+      projectDetails,
+      material,
+      testingLaboratory,
+      testingApprovedBy,
+      status,
+      dueDate,
+      remarks,
+      paymentInfo,
+      sampleQuantity,
+      certificationType,
+      customizationInfo,
+      productType = [],
+      materialCategories = [],
+      productionLine = [],
+      dueDateHistory = [],
+      uploads = [],
+    } = req.body;
+
+    // 3) Begin MSSQL transaction
+    transaction = new mssql.Transaction(mssqlPool);
+    await transaction.begin();
+    const txReq = new mssql.Request(transaction);
+
+    // 4) Update main certification record
+    txReq
+      .input("id", mssql.Int, id)
+      .input("projectName", mssql.VarChar(255), projectName)
+      .input("projectDetails", mssql.Text, projectDetails ?? "")
+      .input("material", mssql.VarChar(255), material)
+      .input("testingLaboratory", mssql.VarChar(255), testingLaboratory)
+      .input("testingApprovedBy", mssql.VarChar(255), testingApprovedBy ?? null)
+      .input("status", mssql.VarChar(50), status)
+      .input("dueDate", mssql.Date, dueDate)
+      .input("remarks", mssql.Text, remarks ?? "")
+      .input("paidForBy", mssql.VarChar(50), paymentInfo?.paidForBy ?? null)
+      .input("currency", mssql.VarChar(10), paymentInfo?.currency ?? null)
+      .input("amount", mssql.Decimal(18, 2), paymentInfo?.amount ?? null)
+      .input(
+        "supplierName",
+        mssql.VarChar(255),
+        paymentInfo?.supplierName ?? null
+      )
+      .input(
+        "supplierAmount",
+        mssql.Decimal(18, 2),
+        paymentInfo?.supplierAmount ?? null
+      )
+      .input(
+        "premierAmount",
+        mssql.Decimal(18, 2),
+        paymentInfo?.premierAmount ?? null
+      )
+      .input(
+        "customerName",
+        mssql.VarChar(255),
+        customizationInfo?.customerName ?? null
+      )
+      .input(
+        "customerComments",
+        mssql.Text,
+        customizationInfo?.comments ?? null
+      )
+      .input("sampleQuantity", mssql.Int, sampleQuantity ?? null)
+      .input("certificationType", mssql.VarChar(50), certificationType);
+
+    await txReq.query(`
+      UPDATE dbo.certifications
+         SET project_name                = @projectName,
+             project_details             = @projectDetails,
+             material                    = @material,
+             testing_laboratory          = @testingLaboratory,
+             testing_approved_by         = @testingApprovedBy,
+             status                      = @status,
+             due_date                    = @dueDate,
+             remarks                     = @remarks,
+             paid_for_by                 = @paidForBy,
+             currency                    = @currency,
+             amount                      = @amount,
+             supplier_name               = @supplierName,
+             supplier_amount             = @supplierAmount,
+             premier_amount              = @premierAmount,
+             customization_customer_name = @customerName,
+             customization_comments      = @customerComments,
+             sample_quantity             = @sampleQuantity,
+             certification_type          = @certificationType
+       WHERE id = @id;
+    `);
+
+    // 5) Clear & re-insert product types
+    await txReq.query(
+      `DELETE FROM dbo.certification_product_types WHERE certification_id = @id;`
     );
-
-    // MSSQL fallback for main UPDATE
-    if (mssqlPool) {
-      try {
-        const reqMs = mssqlPool
-          .request()
-          .input("projectName", mssql.VarChar(255), b.projectName)
-          .input("projectDetails", mssql.Text, b.projectDetails)
-          .input("material", mssql.VarChar(255), b.material)
-          .input("testing_laboratory", mssql.VarChar(255), b.testingLaboratory)
-          .input(
-            "testing_approved_by",
-            mssql.VarChar(255),
-            b.testingApprovedBy ?? null
-          )
-          .input("status", mssql.VarChar(50), b.status)
-          .input("due_date", mssql.Date, b.dueDate)
-          .input("remarks", mssql.Text, b.remarks ?? null)
-          .input(
-            "paid_for_by",
-            mssql.VarChar(50),
-            b.paymentInfo?.paidForBy ?? null
-          )
-          .input("currency", mssql.VarChar(10), b.paymentInfo?.currency ?? null)
-          .input("amount", mssql.Decimal(18, 2), b.paymentInfo?.amount ?? null)
-          .input(
-            "supplier_name",
-            mssql.VarChar(255),
-            b.paymentInfo?.supplierName ?? null
-          )
-          .input(
-            "supplier_amount",
-            mssql.Decimal(18, 2),
-            b.paymentInfo?.supplierAmount ?? null
-          )
-          .input(
-            "premier_amount",
-            mssql.Decimal(18, 2),
-            b.paymentInfo?.premierAmount ?? null
-          )
-          .input(
-            "customization_customer_name",
-            mssql.VarChar(255),
-            b.customizationInfo?.customerName ?? null
-          )
-          .input(
-            "customization_comments",
-            mssql.Text,
-            b.customizationInfo?.comments ?? null
-          )
-          .input("sample_quantity", mssql.Int, b.sampleQuantity ?? null)
-          .input("certification_type", mssql.VarChar(50), b.certificationType)
-          .input("id", mssql.Int, certId);
-        await reqMs.query(`
-          UPDATE dbo.certifications SET
-            project_name                = @projectName,
-            project_details             = @projectDetails,
-            material                    = @material,
-            testing_laboratory          = @testing_laboratory,
-            testing_approved_by         = @testing_approved_by,
-            status                      = @status,
-            due_date                    = @due_date,
-            remarks                     = @remarks,
-            paid_for_by                 = @paid_for_by,
-            currency                    = @currency,
-            amount                      = @amount,
-            supplier_name               = @supplier_name,
-            supplier_amount             = @supplier_amount,
-            premier_amount              = @premier_amount,
-            customization_customer_name = @customization_customer_name,
-            customization_comments      = @customization_comments,
-            sample_quantity             = @sample_quantity,
-            certification_type          = @certification_type
-          WHERE id = @id;
+    for (const pt of productType) {
+      await txReq.input("ptVal", mssql.VarChar(255), pt).query(`
+          INSERT INTO dbo.certification_product_types
+            (certification_id, product_type)
+          VALUES
+            (@id, @ptVal);
         `);
-      } catch (e) {
-        console.error("⚠️ MSSQL UPDATE certifications failed:", e);
-      }
     }
 
-    // 2) Clear and re-insert all to-many fields
-    for (let tbl of [
-      "certification_product_types",
-      "certification_material_categories",
-      "certification_production_lines",
-    ]) {
-      await conn.execute(`DELETE FROM ${tbl} WHERE certification_id = ?`, [
-        certId,
-      ]);
-      if (mssqlPool) {
-        try {
-          await mssqlPool
-            .request()
-            .input("id", mssql.Int, certId)
-            .query(`DELETE FROM dbo.${tbl} WHERE certification_id = @id;`);
-        } catch (_) {}
-      }
-    }
-    const bulkInsert2 = async (table, column, arr) => {
-      if (!Array.isArray(arr)) return;
-      for (let v of arr) {
-        await conn.execute(
-          `INSERT INTO ${table} (certification_id, ${column}) VALUES (?, ?)`,
-          [certId, v]
-        );
-        if (mssqlPool) {
-          try {
-            await mssqlPool
-              .request()
-              .input("id", mssql.Int, certId)
-              .input("val", mssql.VarChar(255), v).query(`
-                INSERT INTO dbo.${table}
-                  (certification_id, ${column})
-                VALUES (@id, @val);
-              `);
-          } catch (_) {}
-        }
-      }
-    };
-    await bulkInsert2(
-      "certification_product_types",
-      "product_type",
-      b.productType
+    // 6) Clear & re-insert material categories
+    await txReq.query(
+      `DELETE FROM dbo.certification_material_categories WHERE certification_id = @id;`
     );
-    await bulkInsert2(
-      "certification_material_categories",
-      "material_category",
-      b.materialCategories
+    for (const mc of materialCategories) {
+      await txReq.input("mcVal", mssql.VarChar(255), mc).query(`
+          INSERT INTO dbo.certification_material_categories
+            (certification_id, material_category)
+          VALUES
+            (@id, @mcVal);
+        `);
+    }
+
+    // 7) Clear & re-insert production lines
+    await txReq.query(
+      `DELETE FROM dbo.certification_production_lines WHERE certification_id = @id;`
     );
-    await bulkInsert2(
-      "certification_production_lines",
-      "production_line",
-      b.productionLine
+    for (const pl of productionLine) {
+      await txReq.input("plVal", mssql.VarChar(255), pl).query(`
+          INSERT INTO dbo.certification_production_lines
+            (certification_id, production_line)
+          VALUES
+            (@id, @plVal);
+        `);
+    }
+
+    // 8) Insert new due-date history entries
+    for (const h of dueDateHistory) {
+      await txReq
+        .input("prevDate", mssql.Date, h.previousDate)
+        .input("newDate", mssql.Date, h.newDate)
+        .input("chgAt", mssql.DateTime, new Date(h.changedAt)).query(`
+          INSERT INTO dbo.due_date_history
+            (certification_id, previous_date, new_date, changed_at)
+          VALUES
+            (@id, @prevDate, @newDate, @chgAt);
+        `);
+    }
+
+    // 9) Replace non-invoice uploads
+    await txReq.query(
+      `DELETE FROM dbo.uploads WHERE certification_id = @id AND is_invoice = 0;`
     );
-
-    // 3) Insert any new due-date history entries
-    if (Array.isArray(b.dueDateHistory)) {
-      for (let h of b.dueDateHistory) {
-        const formattedChangedAt = new Date(h.changedAt)
-          .toISOString()
-          .slice(0, 19)
-          .replace("T", " ");
-        await conn.execute(
-          `INSERT INTO due_date_history
-             (certification_id, previous_date, new_date, changed_at)
-           VALUES (?, ?, ?, ?)`,
-          [certId, h.previousDate, h.newDate, formattedChangedAt]
-        );
-        if (mssqlPool) {
-          try {
-            await mssqlPool
-              .request()
-              .input("id", mssql.Int, certId)
-              .input("prev", mssql.Date, h.previousDate)
-              .input("newd", mssql.Date, h.newDate)
-              .input("chg", mssql.DateTime, formattedChangedAt).query(`
-                INSERT INTO dbo.due_date_history
-                  (certification_id, previous_date, new_date, changed_at)
-                VALUES
-                  (@id, @prev, @newd, @chg);
-              `);
-          } catch (_) {}
-        }
-      }
+    for (const u of uploads) {
+      await txReq
+        .input("fileId", mssql.Char(36), u.id)
+        .input("fileName", mssql.VarChar(255), u.name)
+        .input("fileData", mssql.Text, u.data)
+        .input("fileType", mssql.VarChar(100), u.type).query(`
+          INSERT INTO dbo.uploads
+            (id, certification_id, name, data, type, is_invoice)
+          VALUES
+            (@fileId, @id, @fileName, @fileData, @fileType, 0);
+        `);
     }
 
-    // 4) Replace non-invoice uploads
-    await conn.execute(
-      `DELETE FROM uploads WHERE certification_id = ? AND is_invoice = 0`,
-      [certId]
+    // 10) Replace invoice attachment (if provided)
+    await txReq.query(
+      `DELETE FROM dbo.uploads WHERE certification_id = @id AND is_invoice = 1;`
     );
-    if (mssqlPool) {
-      try {
-        await mssqlPool
-          .request()
-          .input("id", mssql.Int, certId)
-          .query(
-            "DELETE FROM dbo.uploads WHERE certification_id = @id AND is_invoice = 0;"
-          );
-      } catch (_) {}
-    }
-    if (Array.isArray(b.uploads)) {
-      for (let u of b.uploads) {
-        await conn.execute(
-          `INSERT INTO uploads
-             (id, certification_id, name, data, type, is_invoice)
-           VALUES (?, ?, ?, ?, ?, 0)`,
-          [u.id, certId, u.name, u.data, u.type]
-        );
-        if (mssqlPool) {
-          try {
-            await mssqlPool
-              .request()
-              .input("id", mssql.Char(36), u.id)
-              .input("cert", mssql.Int, certId)
-              .input("nm", mssql.VarChar(255), u.name)
-              .input("dt", mssql.Text, u.data)
-              .input("tp", mssql.VarChar(100), u.type).query(`
-                INSERT INTO dbo.uploads
-                  (id, certification_id, name, data, type, is_invoice)
-                VALUES
-                  (@id, @cert, @nm, @dt, @tp, 0);
-              `);
-          } catch (_) {}
-        }
-      }
+    if (paymentInfo?.invoiceAttachment) {
+      const inv = paymentInfo.invoiceAttachment;
+      await txReq
+        .input("invId", mssql.Char(36), inv.id)
+        .input("invName", mssql.VarChar(255), inv.name)
+        .input("invData", mssql.Text, inv.data)
+        .input("invType", mssql.VarChar(100), inv.type).query(`
+          INSERT INTO dbo.uploads
+            (id, certification_id, name, data, type, is_invoice)
+          VALUES
+            (@invId, @id, @invName, @invData, @invType, 1);
+        `);
     }
 
-    // 5) Replace invoice attachment
-    await conn.execute(
-      `DELETE FROM uploads WHERE certification_id = ? AND is_invoice = 1`,
-      [certId]
-    );
-    if (mssqlPool) {
-      try {
-        await mssqlPool
-          .request()
-          .input("id", mssql.Int, certId)
-          .query(
-            "DELETE FROM dbo.uploads WHERE certification_id = @id AND is_invoice = 1;"
-          );
-      } catch (_) {}
-    }
-    if (b.paymentInfo?.invoiceAttachment) {
-      const inv = b.paymentInfo.invoiceAttachment;
-      await conn.execute(
-        `INSERT INTO uploads
-           (id, certification_id, name, data, type, is_invoice)
-         VALUES (?, ?, ?, ?, ?, 1)`,
-        [inv.id, certId, inv.name, inv.data, inv.type]
-      );
-      if (mssqlPool) {
-        try {
-          await mssqlPool
-            .request()
-            .input("id", mssql.Char(36), inv.id)
-            .input("cert", mssql.Int, certId)
-            .input("nm", mssql.VarChar(255), inv.name)
-            .input("dt", mssql.Text, inv.data)
-            .input("tp", mssql.VarChar(100), inv.type).query(`
-              INSERT INTO dbo.uploads
-                (id, certification_id, name, data, type, is_invoice)
-              VALUES
-                (@id, @cert, @nm, @dt, @tp, 1);
-            `);
-        } catch (_) {}
-      }
-    }
-
-    // Commit transaction
-    await conn.commit();
-
-    res.json({ message: "Updated" });
+    // 11) Commit transaction
+    await transaction.commit();
+    res.json({ message: "Certification updated successfully" });
   } catch (err) {
     // Roll back on error
-    await conn.rollback();
-    console.error(err);
+    if (transaction) {
+      try {
+        await transaction.rollback();
+      } catch (_) {}
+    }
+    console.error("PUT /api/certifications/:id error:", err);
     res.status(500).json({ message: "Server Error" });
-  } finally {
-    conn.release();
   }
 });
 
 // --- DELETE ---
 app.delete("/api/certifications/:id", async (req, res) => {
   try {
-    const certId = Number(req.params.id);
-    await pool.execute(`DELETE FROM certifications WHERE id=?`, [certId]);
-    if (mssqlPool) {
-      try {
-        await mssqlPool
-          .request()
-          .input("id", mssql.Int, certId)
-          .query("DELETE FROM dbo.certifications WHERE id = @id;");
-      } catch (_) {}
+    // 1) validate and parse the ID
+    const id = parseInt(req.params.id, 10);
+    if (isNaN(id)) {
+      return res.status(400).json({ message: "Invalid certification ID" });
     }
+
+    // 2) delete the certification (cascades will clean up related rows)
+    await runQuery(`DELETE FROM dbo.certifications WHERE id = @id;`, {
+      id: { type: mssql.Int, value: id },
+    });
+
+    // 3) respond
     res.json({ message: "Certification deleted" });
   } catch (err) {
-    console.error(err);
+    console.error("DELETE /api/certifications/:id error:", err);
     res.status(500).json({ message: "Server Error" });
   }
-});
-
-// ── Static SPA Serve ───────────────────────────────────────────────
-const distDir = path.join(__dirname, "dist");
-const indexHtml = path.join(distDir, "index.html");
-app.use(express.static(distDir));
-app.use((req, res, next) => {
-  if (req.path.startsWith("/api/")) return next();
-  res.sendFile(indexHtml);
 });
 
 // 404 & Error Handlers
